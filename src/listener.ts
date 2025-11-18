@@ -563,7 +563,7 @@ export async function syncEvents(maxBatches?: number): Promise<{
 
   if (startBlock > latestBlock) {
     console.log('✅ Ya estamos sincronizados al último bloque');
-    return { processed: 0, fromBlock: startBlock, toBlock: latestBlock };
+    return { processed: 0, fromBlock: startBlock, toBlock: latestBlock, hasMore: false };
   }
 
   // Calcular cuántos bloques hay que procesar

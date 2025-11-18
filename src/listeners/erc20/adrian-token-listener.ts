@@ -266,7 +266,7 @@ export async function syncERC20Events(maxBatches?: number): Promise<{
 
   if (startBlock > latestBlock) {
     console.log('[ADRIAN-ERC20] ✅ Ya estamos sincronizados al último bloque');
-    return { processed: 0, fromBlock: startBlock, toBlock: latestBlock };
+    return { processed: 0, fromBlock: startBlock, toBlock: latestBlock, hasMore: false };
   }
 
   // Calcular cuántos bloques hay que procesar

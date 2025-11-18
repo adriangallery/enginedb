@@ -6,10 +6,6 @@
 
 import { syncEvents } from './listener.js';
 import { syncERC20Events } from './listeners/erc20/adrian-token-listener.js';
-import { syncHistoricalERC20 } from './listeners/erc20/historical-sync.js';
-import { ADRIAN_TOKEN_CONFIG } from './contracts/config/adrian-token.js';
-import { getLastSyncedBlockByContract } from './supabase/client.js';
-import { createViemClient } from './listener.js';
 import 'dotenv/config';
 
 // Configuración del intervalo de sincronización (en milisegundos)
