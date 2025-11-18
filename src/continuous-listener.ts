@@ -8,11 +8,12 @@ import { syncEvents } from './listener.js';
 import 'dotenv/config';
 
 // Configuración del intervalo de sincronización (en milisegundos)
-// Por defecto: 5 minutos (300,000 ms)
+// Por defecto: 1 minuto (60,000 ms) - TEMPORAL para sincronización rápida
 // Puedes configurarlo con la variable de entorno SYNC_INTERVAL_MINUTES
+// Para operación normal, usar SYNC_INTERVAL_MINUTES=5
 const SYNC_INTERVAL_MINUTES = process.env.SYNC_INTERVAL_MINUTES
   ? parseInt(process.env.SYNC_INTERVAL_MINUTES)
-  : 5;
+  : 1; // Temporal: 1 minuto para sincronización rápida
 
 const SYNC_INTERVAL_MS = SYNC_INTERVAL_MINUTES * 60 * 1000;
 
