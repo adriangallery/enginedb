@@ -2,6 +2,18 @@
 
 Bot listener en TypeScript que indexa eventos del contrato **FloorEngine** (marketplace de AdrianPunks con tax) en Base mainnet hacia Supabase.
 
+---
+
+## ⚡ EMPEZAR AHORA
+
+**El repositorio ya está creado y el código está listo.**
+
+### 👉 [CONFIGURACIÓN DE VARIABLES - SIGUE ESTOS PASOS](./CONFIGURACION_VARIABLES.md) 👈
+
+Toda la configuración necesaria está en ese archivo. Te tomará 10-15 minutos.
+
+---
+
 ## 📋 Características
 
 - ✅ Sincronización automática de eventos on-chain cada 5 minutos
