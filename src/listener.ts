@@ -38,7 +38,13 @@ import { bigintToString } from './types/events.js';
 /**
  * Configuración del listener
  */
-const BLOCKS_PER_BATCH = 2000n; // Número de bloques a procesar por lote
+// Número de bloques a procesar por lote
+// Alchemy Free: máximo 10 bloques
+// Alchemy Growth/Pro: hasta 2000 bloques
+const BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
+  ? BigInt(process.env.BLOCKS_PER_BATCH)
+  : 10n; // Default: 10 para Alchemy Free tier
+
 const START_BLOCK = process.env.START_BLOCK
   ? BigInt(process.env.START_BLOCK)
   : 0n;
