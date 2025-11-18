@@ -19,8 +19,9 @@ export const ADRIAN_TOKEN_CONFIG: ContractConfig = {
   address: '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea',
   name: 'ADRIAN Token',
   type: 'ERC20',
-  // Start block: Se puede obtener de Basescan o configurar manualmente
-  // Ejemplo: startBlock: 38200000n (ajustar según deployment real)
+  // Start block: Bloque de deployment del contrato (hace ~9 meses)
+  // Deployment block: 26367738
+  startBlock: 26367738n,
   enabled: true,
 };
 
