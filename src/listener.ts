@@ -7,7 +7,6 @@ import {
   createPublicClient,
   http,
   decodeEventLog,
-  type PublicClient,
   type Log,
 } from 'viem';
 import { base } from 'viem/chains';
