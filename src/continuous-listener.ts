@@ -1,10 +1,11 @@
 /**
  * Listener continuo para Railway
  * Se ejecuta en un loop infinito con intervalos configurables
- * Sincroniza eventos del contrato FloorEngine en Base mainnet
+ * Sincroniza eventos del contrato FloorEngine y $ADRIAN Token en Base mainnet
  */
 
 import { syncEvents } from './listener.js';
+import { syncERC20Events } from './listeners/erc20/adrian-token-listener.js';
 import 'dotenv/config';
 
 // Configuración del intervalo de sincronización (en milisegundos)
@@ -28,8 +29,8 @@ function sleep(ms: number): Promise<void> {
  * Función principal del listener continuo
  */
 async function runContinuousListener() {
-  console.log('🚀 FloorEngine Continuous Listener Bot');
-  console.log('======================================');
+  console.log('🚀 Multi-Contract Continuous Listener Bot');
+  console.log('==========================================');
   console.log(`⏰ Inicio: ${new Date().toISOString()}`);
   console.log(`🔄 Intervalo de sincronización: ${SYNC_INTERVAL_MINUTES} minutos`);
   console.log('');
@@ -45,24 +46,46 @@ async function runContinuousListener() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('');
 
+    // Sincronizar FloorEngine
     try {
       const startTime = Date.now();
       const result = await syncEvents();
       const duration = Date.now() - startTime;
 
       console.log('');
-      console.log('✅ Sincronización completada');
-      console.log(`📊 ${result.processed} eventos procesados`);
+      console.log('[FloorEngine] ✅ Sincronización completada');
+      console.log(`[FloorEngine] 📊 ${result.processed} eventos procesados`);
       console.log(
-        `📍 Bloques: ${result.fromBlock} → ${result.toBlock}`
+        `[FloorEngine] 📍 Bloques: ${result.fromBlock} → ${result.toBlock}`
       );
-      console.log(`⏱️  Duración: ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
+      console.log(`[FloorEngine] ⏱️  Duración: ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
     } catch (error) {
       console.error('');
-      console.error('❌ Error durante la sincronización:');
+      console.error('[FloorEngine] ❌ Error durante la sincronización:');
       console.error(error);
       console.error('');
-      console.error('⚠️  Continuando con el siguiente ciclo...');
+      console.error('[FloorEngine] ⚠️  Continuando con siguiente contrato...');
+    }
+
+    // Sincronizar $ADRIAN Token (ERC20)
+    try {
+      const startTime = Date.now();
+      const result = await syncERC20Events();
+      const duration = Date.now() - startTime;
+
+      console.log('');
+      console.log('[ADRIAN-ERC20] ✅ Sincronización completada');
+      console.log(`[ADRIAN-ERC20] 📊 ${result.processed} eventos procesados`);
+      console.log(
+        `[ADRIAN-ERC20] 📍 Bloques: ${result.fromBlock} → ${result.toBlock}`
+      );
+      console.log(`[ADRIAN-ERC20] ⏱️  Duración: ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
+    } catch (error) {
+      console.error('');
+      console.error('[ADRIAN-ERC20] ❌ Error durante la sincronización:');
+      console.error(error);
+      console.error('');
+      console.error('[ADRIAN-ERC20] ⚠️  Continuando con siguiente ciclo...');
     }
 
     console.log('');

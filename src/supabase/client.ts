@@ -126,17 +126,49 @@ export function getSupabaseClient(): SupabaseClient {
 
 /**
  * Obtener el último bloque sincronizado desde Supabase
+ * Función legacy para FloorEngine (mantiene compatibilidad)
  */
 export async function getLastSyncedBlock(): Promise<number> {
+  return getLastSyncedBlockByContract(
+    '0x0351F7cBA83277E891D4a85Da498A7eACD764D58'
+  );
+}
+
+/**
+ * Actualizar el último bloque sincronizado en Supabase
+ * Función legacy para FloorEngine (mantiene compatibilidad)
+ */
+export async function updateLastSyncedBlock(blockNumber: number): Promise<void> {
+  return updateLastSyncedBlockByContract(
+    '0x0351F7cBA83277E891D4a85Da498A7eACD764D58',
+    blockNumber
+  );
+}
+
+/**
+ * Obtener el último bloque sincronizado por contrato
+ * Nueva función multi-contrato
+ */
+export async function getLastSyncedBlockByContract(
+  contractAddress: string
+): Promise<number> {
   const client = getSupabaseClient();
 
   const { data, error } = await client
     .from('sync_state')
     .select('last_synced_block')
+    .eq('contract_address', contractAddress.toLowerCase())
     .single();
 
   if (error) {
-    console.error('Error al obtener último bloque sincronizado:', error);
+    // Si no existe registro, retornar 0
+    if (error.code === 'PGRST116') {
+      return 0;
+    }
+    console.error(
+      `Error al obtener último bloque sincronizado para ${contractAddress}:`,
+      error
+    );
     throw error;
   }
 
@@ -144,19 +176,56 @@ export async function getLastSyncedBlock(): Promise<number> {
 }
 
 /**
- * Actualizar el último bloque sincronizado en Supabase
+ * Actualizar el último bloque sincronizado por contrato
+ * Nueva función multi-contrato
  */
-export async function updateLastSyncedBlock(blockNumber: number): Promise<void> {
+export async function updateLastSyncedBlockByContract(
+  contractAddress: string,
+  blockNumber: number
+): Promise<void> {
   const client = getSupabaseClient();
 
-  const { error } = await client
+  // Intentar actualizar registro existente
+  const { error: selectError } = await client
     .from('sync_state')
-    .update({ last_synced_block: blockNumber })
-    .eq('id', 1); // Asumimos que siempre hay una fila con id=1
+    .select('id')
+    .eq('contract_address', contractAddress.toLowerCase())
+    .single();
 
-  if (error) {
-    console.error('Error al actualizar último bloque sincronizado:', error);
-    throw error;
+  if (selectError && selectError.code === 'PGRST116') {
+    // No existe registro, crear uno nuevo
+    const { error: insertError } = await client.from('sync_state').insert({
+      contract_address: contractAddress.toLowerCase(),
+      last_synced_block: blockNumber,
+    });
+
+    if (insertError) {
+      console.error(
+        `Error al crear registro de sync_state para ${contractAddress}:`,
+        insertError
+      );
+      throw insertError;
+    }
+  } else if (selectError) {
+    console.error(
+      `Error al buscar registro de sync_state para ${contractAddress}:`,
+      selectError
+    );
+    throw selectError;
+  } else {
+    // Actualizar registro existente
+    const { error: updateError } = await client
+      .from('sync_state')
+      .update({ last_synced_block: blockNumber })
+      .eq('contract_address', contractAddress.toLowerCase());
+
+    if (updateError) {
+      console.error(
+        `Error al actualizar último bloque sincronizado para ${contractAddress}:`,
+        updateError
+      );
+      throw updateError;
+    }
   }
 }
 

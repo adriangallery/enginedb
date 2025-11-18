@@ -11,9 +11,31 @@ CREATE TABLE IF NOT EXISTS sync_state (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Agregar columna contract_address si no existe (para soporte multi-contrato)
+DO $$ 
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'sync_state' AND column_name = 'contract_address'
+  ) THEN
+    ALTER TABLE sync_state ADD COLUMN contract_address TEXT;
+  END IF;
+END $$;
+
+-- Crear índice único parcial si no existe
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_state_contract_address 
+ON sync_state(contract_address) 
+WHERE contract_address IS NOT NULL;
+
+-- Migrar registro existente de FloorEngine si contract_address es NULL
+UPDATE sync_state 
+SET contract_address = '0x0351F7cBA83277E891D4a85Da498A7eACD764D58'
+WHERE contract_address IS NULL 
+  AND id = (SELECT MIN(id) FROM sync_state WHERE contract_address IS NULL);
+
 -- Insertar fila inicial si no existe
-INSERT INTO sync_state (last_synced_block)
-SELECT 0
+INSERT INTO sync_state (last_synced_block, contract_address)
+SELECT 0, '0x0351F7cBA83277E891D4a85Da498A7eACD764D58'
 WHERE NOT EXISTS (SELECT 1 FROM sync_state);
 
 -- ============================================================================
@@ -149,13 +171,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger para sync_state
+-- Trigger para sync_state (DROP IF EXISTS para evitar errores si ya existe)
+DROP TRIGGER IF EXISTS update_sync_state_updated_at ON sync_state;
 CREATE TRIGGER update_sync_state_updated_at
   BEFORE UPDATE ON sync_state
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
--- Trigger para punk_listings
+-- Trigger para punk_listings (DROP IF EXISTS para evitar errores si ya existe)
+DROP TRIGGER IF EXISTS update_punk_listings_updated_at ON punk_listings;
 CREATE TRIGGER update_punk_listings_updated_at
   BEFORE UPDATE ON punk_listings
   FOR EACH ROW
@@ -170,4 +194,84 @@ COMMENT ON TABLE listing_events IS 'Histórico de eventos Listed y Cancelled';
 COMMENT ON TABLE trade_events IS 'Histórico de compras (evento Bought)';
 COMMENT ON TABLE sweep_events IS 'Histórico de floor sweeps automáticos';
 COMMENT ON TABLE engine_config_events IS 'Histórico de cambios de configuración del contrato';
+
+-- ============================================================================
+-- TABLAS ERC20 - Para contratos ERC20 como $ADRIAN Token
+-- Separadas con prefijo erc20_ para no interferir con FloorEngine
+-- ============================================================================
+
+-- ============================================================================
+-- Tabla: erc20_transfers
+-- Propósito: Histórico de eventos Transfer de contratos ERC20
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc20_transfers (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  from_address TEXT NOT NULL,
+  to_address TEXT NOT NULL,
+  value_wei NUMERIC NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc20_transfers_contract_address ON erc20_transfers(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc20_transfers_from_address ON erc20_transfers(from_address);
+CREATE INDEX IF NOT EXISTS idx_erc20_transfers_to_address ON erc20_transfers(to_address);
+CREATE INDEX IF NOT EXISTS idx_erc20_transfers_block_number ON erc20_transfers(block_number);
+
+-- ============================================================================
+-- Tabla: erc20_approvals
+-- Propósito: Histórico de eventos Approval de contratos ERC20
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc20_approvals (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  spender TEXT NOT NULL,
+  value_wei NUMERIC NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc20_approvals_contract_address ON erc20_approvals(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc20_approvals_owner ON erc20_approvals(owner);
+CREATE INDEX IF NOT EXISTS idx_erc20_approvals_spender ON erc20_approvals(spender);
+CREATE INDEX IF NOT EXISTS idx_erc20_approvals_block_number ON erc20_approvals(block_number);
+
+-- ============================================================================
+-- Tabla: erc20_custom_events
+-- Propósito: Eventos custom de contratos ERC20 (TaxFeeUpdated, Staked, etc.)
+-- Usa JSONB para flexibilidad en estructuras de eventos diferentes
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc20_custom_events (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  event_name TEXT NOT NULL,
+  event_data JSONB NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc20_custom_events_contract_address ON erc20_custom_events(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc20_custom_events_event_name ON erc20_custom_events(event_name);
+CREATE INDEX IF NOT EXISTS idx_erc20_custom_events_block_number ON erc20_custom_events(block_number);
+-- Índice GIN para búsquedas en JSONB
+CREATE INDEX IF NOT EXISTS idx_erc20_custom_events_event_data ON erc20_custom_events USING GIN (event_data);
+
+-- Comentarios para documentación
+COMMENT ON TABLE erc20_transfers IS 'Histórico de eventos Transfer de contratos ERC20';
+COMMENT ON TABLE erc20_approvals IS 'Histórico de eventos Approval de contratos ERC20';
+COMMENT ON TABLE erc20_custom_events IS 'Eventos custom de contratos ERC20 (TaxFeeUpdated, Staked, etc.)';
 
