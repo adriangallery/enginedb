@@ -21,6 +21,9 @@ El código ya está en GitHub y listo para deployar. Solo faltan las variables d
 
 ## 🚀 PROCESO COMPLETO PASO A PASO
 
+**Tiempo total**: 10-15 minutos  
+**Pasos requeridos**: 8 (el último es ejecutar la primera sync manualmente)
+
 ### PASO 1: Obtener RPC URL de Base Mainnet
 
 Tienes 2 opciones:
@@ -194,39 +197,68 @@ https://mainnet.base.org
 
 ---
 
-### PASO 7: Verificar que Funciona
+### PASO 7: Primera Sincronización Manual (IMPORTANTE)
 
-#### 7.1 Verificar Cron Job
+**No esperes 6 horas!** Ejecuta la primera sincronización ahora para inicializar la base de datos.
 
-1. En Vercel → Tu proyecto → **"Cron Jobs"** (en el menú lateral)
+#### 7.1 Ejecutar Primera Sincronización
 
-2. Deberías ver:
+**Opción A - Desde el Navegador** (Más fácil):
+
+1. Copia tu URL de Vercel (ej: `marketplace-adrianlab.vercel.app`)
+2. Agrégale `/api/sync` al final
+3. Abre en el navegador:
    ```
-   */5 * * * *  →  /api/sync
+   https://marketplace-adrianlab.vercel.app/api/sync
    ```
+4. Verás una respuesta JSON
 
-3. Espera 5 minutos y verás la primera ejecución
-
-#### 7.2 Trigger Manual (Opcional)
-
-Puedes ejecutar manualmente desde tu terminal:
+**Opción B - Desde la Terminal**:
 
 ```bash
 curl https://TU-PROYECTO.vercel.app/api/sync
 ```
 
-Reemplaza `TU-PROYECTO` con tu URL de Vercel (ej: `enginedb-asdf1234.vercel.app`)
+Reemplaza `TU-PROYECTO` con tu URL de Vercel.
 
-Deberías recibir algo como:
+**Respuesta Esperada**:
 ```json
 {
   "success": true,
-  "processed": 5,
-  "fromBlock": "10000000",
-  "toBlock": "10002000",
-  "message": "Procesados 5 eventos desde bloque 10000000 hasta 10002000"
+  "processed": 0,
+  "fromBlock": "0",
+  "toBlock": "22500000",
+  "message": "Procesados 0 eventos desde bloque 0 hasta 22500000"
 }
 ```
+
+✅ Si ves `"success": true`, ¡la base de datos está inicializada!
+
+📖 **Guía detallada**: Ver [PRIMER_SYNC.md](./PRIMER_SYNC.md) para más opciones
+
+---
+
+#### 7.2 Verificar en Supabase
+
+1. Ve a Supabase → Tu proyecto → **Table Editor**
+2. Click en la tabla **`sync_state`**
+3. Deberías ver `last_synced_block` con un número > 0
+
+✅ **Perfecto!** La primera sincronización fue exitosa.
+
+---
+
+#### 7.3 Verificar Cron Job
+
+1. En Vercel → Tu proyecto → **"Cron Jobs"** (en el menú lateral)
+
+2. Deberías ver:
+   ```
+   0 */6 * * *  →  /api/sync
+   ```
+   Esto significa: cada 6 horas (00:00, 06:00, 12:00, 18:00)
+
+3. El cron ahora se ejecutará automáticamente cada 6 horas
 
 #### 7.3 Ver Logs en Tiempo Real
 

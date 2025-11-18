@@ -34,10 +34,16 @@ Marca cada paso a medida que lo completas:
   - Vercel → Deployments → Último deployment → Redeploy
   - Sin cache
 
-- [ ] **Paso 7**: Verificar que funciona
-  - Vercel → Cron Jobs (ver que se ejecuta cada 5 min)
+- [ ] **Paso 7**: Primera sincronización manual (NO ESPERES!)
+  - Abrir: `https://TU-URL.vercel.app/api/sync` en el navegador
+  - O ejecutar: `curl https://TU-URL.vercel.app/api/sync`
+  - Verificar respuesta: `"success": true`
+  - Supabase → sync_state → Ver que last_synced_block > 0
+
+- [ ] **Paso 8**: Verificar funcionamiento continuo
+  - Vercel → Cron Jobs (ver configuración cada 6 horas)
   - Vercel → Logs (ver logs de sincronización)
-  - Supabase → Table Editor → sync_state (last_synced_block > 0)
+  - Todo funcionando ✅
 
 ---
 
