@@ -237,11 +237,13 @@ function decodeLog(log: Log): AdrianTokenEvent | null {
 
 /**
  * Sincronizar eventos del contrato $ADRIAN Token
+ * @param maxBatches - Número máximo de batches a procesar (opcional, undefined = todos)
  */
-export async function syncERC20Events(): Promise<{
+export async function syncERC20Events(maxBatches?: number): Promise<{
   processed: number;
   fromBlock: bigint;
   toBlock: bigint;
+  hasMore: boolean; // Indica si hay más batches pendientes
 }> {
   console.log('[ADRIAN-ERC20] 🔄 Iniciando sincronización de eventos...');
 
@@ -281,16 +283,24 @@ export async function syncERC20Events(): Promise<{
     `[ADRIAN-ERC20] ⚡ Usando ${PARALLEL_REQUESTS} requests paralelos para procesar ${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo`
   );
 
-  // Procesar en batches paralelos
+  // Configuración: guardar progreso cada N batches
+  const SAVE_PROGRESS_INTERVAL = 100; // Guardar progreso cada 100 batches
+
+  // Limitar batches si se especifica maxBatches
+  const batchesToProcess = maxBatches ? Math.min(totalBatches, maxBatches) : totalBatches;
+  const hasMore = maxBatches ? totalBatches > maxBatches : false;
+
+  // Procesar en batches paralelos con guardado incremental
   let allLogs: Log[] = [];
   let processedBatches = 0;
   let lastProcessedBlock = startBlock - 1n;
+  let processedEvents = 0;
 
-  for (let i = 0; i < totalBatches; i += PARALLEL_REQUESTS) {
+  for (let i = 0; i < batchesToProcess; i += PARALLEL_REQUESTS) {
     // Crear batch de requests paralelos
     const batchPromises: Promise<Log[]>[] = [];
 
-    for (let j = 0; j < PARALLEL_REQUESTS && i + j < totalBatches; j++) {
+    for (let j = 0; j < PARALLEL_REQUESTS && i + j < batchesToProcess; j++) {
       const batchIndex = i + j;
       const fromBlock = startBlock + BigInt(batchIndex) * BLOCKS_PER_BATCH;
       const toBlock =
@@ -307,8 +317,10 @@ export async function syncERC20Events(): Promise<{
     const batchResults = await Promise.all(batchPromises);
 
     // Combinar todos los logs
+    const batchLogs: Log[] = [];
     for (const logs of batchResults) {
-      allLogs = allLogs.concat(logs);
+      batchLogs.push(...logs);
+      allLogs.push(...logs);
     }
 
     processedBatches += batchPromises.length;
@@ -318,48 +330,53 @@ export async function syncERC20Events(): Promise<{
       lastProcessedBlock = latestBlock;
     }
 
+    // Procesar eventos de este batch inmediatamente
+    for (const log of batchLogs) {
+      const event = decodeLog(log);
+      if (event) {
+        await processERC20Event(event, contractAddress);
+        processedEvents++;
+      }
+    }
+
     console.log(
-      `[ADRIAN-ERC20] 📦 Procesados ${processedBatches}/${totalBatches} batches (${allLogs.length} eventos encontrados hasta ahora)`
+      `[ADRIAN-ERC20] 📦 Procesados ${processedBatches}/${totalBatches} batches (${allLogs.length} eventos encontrados, ${processedEvents} procesados)`
     );
 
+    // Guardar progreso cada SAVE_PROGRESS_INTERVAL batches
+    if (processedBatches % SAVE_PROGRESS_INTERVAL === 0 || i + PARALLEL_REQUESTS >= batchesToProcess) {
+      await updateLastSyncedBlockByContract(contractAddress, Number(lastProcessedBlock));
+      console.log(
+        `[ADRIAN-ERC20] 💾 Progreso guardado: bloque ${lastProcessedBlock} (${processedBatches}/${totalBatches} batches)`
+      );
+    }
+
     // Delay entre batches para evitar rate limiting (excepto en el último batch)
-    if (i + PARALLEL_REQUESTS < totalBatches) {
+    if (i + PARALLEL_REQUESTS < batchesToProcess) {
       const delay = 500; // 500ms entre batches
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 
   console.log(
-    `[ADRIAN-ERC20] 📝 Total de eventos encontrados: ${allLogs.length}`
+    `[ADRIAN-ERC20] 📝 Total de eventos encontrados: ${allLogs.length}, procesados: ${processedEvents}`
   );
 
-  // Procesar todos los eventos encontrados
-  let processed = 0;
-  for (const log of allLogs) {
-    const event = decodeLog(log);
-    if (event) {
-      await processERC20Event(event, contractAddress);
-      processed++;
-      console.log(
-        `[ADRIAN-ERC20] ✅ Procesado evento ${event.eventName} en bloque ${event.blockNumber}`
-      );
-    }
-  }
-
-  // Actualizar último bloque sincronizado
+  // Asegurar que el progreso final esté guardado
   await updateLastSyncedBlockByContract(contractAddress, Number(lastProcessedBlock));
 
   console.log(
-    `[ADRIAN-ERC20] 🎉 Sincronización completada: ${processed} eventos procesados de ${allLogs.length} logs encontrados`
+    `[ADRIAN-ERC20] 🎉 Sincronización completada: ${processedEvents} eventos procesados de ${allLogs.length} logs encontrados`
   );
   console.log(
     `[ADRIAN-ERC20] 📍 Bloques procesados: ${startBlock} → ${lastProcessedBlock} (${Number(lastProcessedBlock - startBlock + 1n)} bloques)`
   );
 
   return {
-    processed,
+    processed: processedEvents,
     fromBlock: startBlock,
     toBlock: lastProcessedBlock,
+    hasMore,
   };
 }
 
