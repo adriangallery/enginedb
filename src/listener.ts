@@ -45,6 +45,12 @@ const BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
   ? BigInt(process.env.BLOCKS_PER_BATCH)
   : 10n; // Default: 10 para Alchemy Free tier
 
+// Número de requests paralelos para mantenernos al día con Base
+// Base genera ~30 bloques/minuto, con 3 requests paralelos de 10 bloques = 30 bloques/minuto
+const PARALLEL_REQUESTS = process.env.PARALLEL_REQUESTS
+  ? parseInt(process.env.PARALLEL_REQUESTS)
+  : 3; // Default: 3 requests paralelos
+
 const START_BLOCK = process.env.START_BLOCK
   ? BigInt(process.env.START_BLOCK)
   : 0n;
@@ -472,7 +478,32 @@ async function processEvent(event: FloorEngineEvent): Promise<void> {
 }
 
 /**
+ * Procesar un rango específico de bloques
+ */
+async function processBlockRange(
+  client: ReturnType<typeof createViemClient>,
+  fromBlock: bigint,
+  toBlock: bigint
+): Promise<Log[]> {
+  try {
+    const logs = await client.getLogs({
+      address: FLOOR_ENGINE_ADDRESS,
+      fromBlock: fromBlock,
+      toBlock: toBlock,
+    });
+    return logs;
+  } catch (error) {
+    console.error(
+      `❌ Error al obtener logs para bloques ${fromBlock}-${toBlock}:`,
+      error
+    );
+    return []; // Retornar array vacío en caso de error
+  }
+}
+
+/**
  * Sincronizar eventos desde el último bloque procesado
+ * Usa requests paralelos para procesar múltiples rangos simultáneamente
  */
 export async function syncEvents(): Promise<{
   processed: number;
@@ -495,28 +526,65 @@ export async function syncEvents(): Promise<{
     return { processed: 0, fromBlock: startBlock, toBlock: latestBlock };
   }
 
-  // Calcular rango a procesar (máximo BLOCKS_PER_BATCH por vez)
-  const toBlock =
-    startBlock + BLOCKS_PER_BATCH > latestBlock
-      ? latestBlock
-      : startBlock + BLOCKS_PER_BATCH - 1n;
-
-  console.log(
-    `📊 Procesando bloques ${startBlock} a ${toBlock} (latest: ${latestBlock})`
+  // Calcular cuántos bloques hay que procesar
+  const blocksToProcess = latestBlock - startBlock + 1n;
+  const totalBatches = Number(
+    blocksToProcess / BLOCKS_PER_BATCH +
+      (blocksToProcess % BLOCKS_PER_BATCH > 0n ? 1n : 0n)
   );
 
-  // Obtener logs del contrato
-  const logs = await client.getLogs({
-    address: FLOOR_ENGINE_ADDRESS,
-    fromBlock: startBlock,
-    toBlock: toBlock,
-  });
+  console.log(
+    `📊 Procesando ${blocksToProcess} bloques (${totalBatches} batches de ${BLOCKS_PER_BATCH}) desde ${startBlock} hasta ${latestBlock}`
+  );
+  console.log(
+    `⚡ Usando ${PARALLEL_REQUESTS} requests paralelos para procesar ${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo`
+  );
 
-  console.log(`📝 Encontrados ${logs.length} eventos`);
+  // Procesar en batches paralelos
+  let allLogs: Log[] = [];
+  let processedBatches = 0;
+  let lastProcessedBlock = startBlock - 1n;
 
-  // Procesar cada log
+  for (let i = 0; i < totalBatches; i += PARALLEL_REQUESTS) {
+    // Crear batch de requests paralelos
+    const batchPromises: Promise<Log[]>[] = [];
+
+    for (let j = 0; j < PARALLEL_REQUESTS && i + j < totalBatches; j++) {
+      const batchIndex = i + j;
+      const fromBlock = startBlock + BigInt(batchIndex) * BLOCKS_PER_BATCH;
+      const toBlock =
+        fromBlock + BLOCKS_PER_BATCH - 1n > latestBlock
+          ? latestBlock
+          : fromBlock + BLOCKS_PER_BATCH - 1n;
+
+      batchPromises.push(processBlockRange(client, fromBlock, toBlock));
+    }
+
+    // Ejecutar batch en paralelo
+    const batchResults = await Promise.all(batchPromises);
+
+    // Combinar todos los logs
+    for (const logs of batchResults) {
+      allLogs = allLogs.concat(logs);
+    }
+
+    processedBatches += batchPromises.length;
+    lastProcessedBlock =
+      startBlock + BigInt(processedBatches) * BLOCKS_PER_BATCH - 1n;
+    if (lastProcessedBlock > latestBlock) {
+      lastProcessedBlock = latestBlock;
+    }
+
+    console.log(
+      `📦 Procesados ${processedBatches}/${totalBatches} batches (${allLogs.length} eventos encontrados hasta ahora)`
+    );
+  }
+
+  console.log(`📝 Total de eventos encontrados: ${allLogs.length}`);
+
+  // Procesar todos los eventos encontrados
   let processed = 0;
-  for (const log of logs) {
+  for (const log of allLogs) {
     const event = decodeLog(log);
     if (event) {
       await processEvent(event);
@@ -528,12 +596,19 @@ export async function syncEvents(): Promise<{
   }
 
   // Actualizar último bloque sincronizado
-  await updateLastSyncedBlock(Number(toBlock));
+  await updateLastSyncedBlock(Number(lastProcessedBlock));
 
   console.log(
-    `🎉 Sincronización completada: ${processed} eventos procesados`
+    `🎉 Sincronización completada: ${processed} eventos procesados de ${allLogs.length} logs encontrados`
+  );
+  console.log(
+    `📍 Bloques procesados: ${startBlock} → ${lastProcessedBlock} (${Number(lastProcessedBlock - startBlock + 1n)} bloques)`
   );
 
-  return { processed, fromBlock: startBlock, toBlock };
+  return {
+    processed,
+    fromBlock: startBlock,
+    toBlock: lastProcessedBlock,
+  };
 }
 
