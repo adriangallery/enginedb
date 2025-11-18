@@ -1,5 +1,10 @@
 # 🤖 FloorEngine Listener Bot
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/adriangallery/enginedb)
+![Base Network](https://img.shields.io/badge/Network-Base%20Mainnet-blue)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+
 Bot listener en TypeScript que indexa eventos del contrato **FloorEngine** (marketplace de AdrianPunks con tax) en Base mainnet hacia Supabase.
 
 ---
@@ -11,6 +16,8 @@ Bot listener en TypeScript que indexa eventos del contrato **FloorEngine** (mark
 ### 👉 [CONFIGURACIÓN DE VARIABLES - SIGUE ESTOS PASOS](./CONFIGURACION_VARIABLES.md) 👈
 
 Toda la configuración necesaria está en ese archivo. Te tomará 10-15 minutos.
+
+**🆓 Plan Free**: Sincroniza cada 6 horas (4 veces/día) - Ver [VERCEL_FREE_PLAN.md](./VERCEL_FREE_PLAN.md)
 
 ---
 
