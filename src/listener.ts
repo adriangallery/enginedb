@@ -6,7 +6,6 @@
 import {
   createPublicClient,
   http,
-  parseAbiItem,
   decodeEventLog,
   type PublicClient,
   type Log,
@@ -48,7 +47,7 @@ const START_BLOCK = process.env.START_BLOCK
 /**
  * Crear cliente de viem para Base mainnet
  */
-export function createViemClient(): PublicClient {
+export function createViemClient() {
   const rpcUrl = process.env.RPC_URL_BASE;
 
   if (!rpcUrl) {
