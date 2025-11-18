@@ -1,6 +1,7 @@
 /**
  * Listener continuo para Railway
  * Se ejecuta en un loop infinito con intervalos configurables
+ * Sincroniza eventos del contrato FloorEngine en Base mainnet
  */
 
 import { syncEvents } from './listener.js';
