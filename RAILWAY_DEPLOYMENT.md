@@ -156,6 +156,17 @@ Si quieres más frecuente:
 - `5` = Cada 5 minutos (recomendado)
 - `10` = Cada 10 minutos (más conservador)
 
+**Variable 6**: BLOCKS_PER_BATCH (opcional)
+```
+BLOCKS_PER_BATCH=10
+```
+Bloques a consultar por request (default: 10).
+
+Ajusta según tu plan de RPC:
+- `10` = Alchemy Free tier (default)
+- `100` = Alchemy Growth
+- `2000` = Alchemy Pro o RPC privado
+
 4. Click en **"Add"** después de cada variable
 
 ✅ **Variables configuradas!**
