@@ -13,11 +13,30 @@ Bot listener en TypeScript que indexa eventos del contrato **FloorEngine** (mark
 
 **El repositorio ya está creado y el código está listo.**
 
-### 👉 [CONFIGURACIÓN DE VARIABLES - SIGUE ESTOS PASOS](./CONFIGURACION_VARIABLES.md) 👈
+### 🚂 Railway (Recomendado)
+**Datos casi en tiempo real - Proceso continuo 24/7**
 
-Toda la configuración necesaria está en ese archivo. Te tomará 10-15 minutos.
+👉 [RAILWAY_DEPLOYMENT.md](./RAILWAY_DEPLOYMENT.md) - Guía completa  
+☑️ [RAILWAY_CHECKLIST.md](./RAILWAY_CHECKLIST.md) - Checklist rápido
 
-**🆓 Plan Free**: Sincroniza cada 6 horas (4 veces/día) - Ver [VERCEL_FREE_PLAN.md](./VERCEL_FREE_PLAN.md)
+- ✅ Sincroniza cada 5 minutos (o configurable)
+- ✅ Proceso continuo 24/7
+- ✅ Setup en 10 minutos
+- 💰 ~$5-7/mes
+
+### ☁️ Vercel (Alternativa)
+**Gratis pero con sincronización cada 6 horas**
+
+👉 [CONFIGURACION_VARIABLES.md](./CONFIGURACION_VARIABLES.md) - Guía completa  
+📖 [VERCEL_FREE_PLAN.md](./VERCEL_FREE_PLAN.md) - Detalles del plan free
+
+- ✅ Totalmente gratis
+- ⚠️ Sincroniza cada 6 horas (plan free)
+- ✅ Setup en 15 minutos
+- 💰 $0 (o $20/mes Pro para sync frecuente)
+
+### ⚖️ ¿No sabes cuál elegir?
+Ver [RAILWAY_VS_VERCEL.md](./RAILWAY_VS_VERCEL.md) - Comparación completa
 
 ---
 

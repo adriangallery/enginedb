@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "dev:continuous": "tsx src/continuous-listener.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/src/continuous-listener.js",
+    "start:once": "node dist/src/index.js",
     "type-check": "tsc --noEmit"
   },
   "keywords": [
@@ -26,7 +28,6 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.5",
-    "@vercel/node": "^3.0.21",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   }
