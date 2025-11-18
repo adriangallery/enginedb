@@ -478,27 +478,65 @@ async function processEvent(event: FloorEngineEvent): Promise<void> {
 }
 
 /**
- * Procesar un rango específico de bloques
+ * Retry con backoff exponencial para manejar rate limiting
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 5,
+  initialDelay: number = 1000
+): Promise<T> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Si es error 429 (Too Many Requests), aplicar backoff
+      const isRateLimit = error?.status === 429 || 
+                         error?.message?.includes('429') ||
+                         error?.message?.includes('Too Many Requests');
+      
+      if (isRateLimit && attempt < maxRetries - 1) {
+        const delay = initialDelay * Math.pow(2, attempt); // Backoff exponencial
+        console.warn(
+          `⚠️  Rate limit detectado (intento ${attempt + 1}/${maxRetries}). Esperando ${delay}ms...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // Si no es rate limit o es el último intento, lanzar error
+      throw error;
+    }
+  }
+  
+  throw lastError;
+}
+
+/**
+ * Procesar un rango específico de bloques con retry
  */
 async function processBlockRange(
   client: ReturnType<typeof createViemClient>,
   fromBlock: bigint,
   toBlock: bigint
 ): Promise<Log[]> {
-  try {
+  return retryWithBackoff(async () => {
     const logs = await client.getLogs({
       address: FLOOR_ENGINE_ADDRESS,
       fromBlock: fromBlock,
       toBlock: toBlock,
     });
     return logs;
-  } catch (error) {
+  }).catch((error) => {
     console.error(
-      `❌ Error al obtener logs para bloques ${fromBlock}-${toBlock}:`,
+      `❌ Error al obtener logs para bloques ${fromBlock}-${toBlock} después de retries:`,
       error
     );
-    return []; // Retornar array vacío en caso de error
-  }
+    return []; // Retornar array vacío en caso de error después de todos los retries
+  });
 }
 
 /**
@@ -578,6 +616,12 @@ export async function syncEvents(): Promise<{
     console.log(
       `📦 Procesados ${processedBatches}/${totalBatches} batches (${allLogs.length} eventos encontrados hasta ahora)`
     );
+
+    // Delay entre batches para evitar rate limiting (excepto en el último batch)
+    if (i + PARALLEL_REQUESTS < totalBatches) {
+      const delay = 500; // 500ms entre batches
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
 
   console.log(`📝 Total de eventos encontrados: ${allLogs.length}`);

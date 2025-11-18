@@ -6,6 +6,10 @@
 
 import { syncEvents } from './listener.js';
 import { syncERC20Events } from './listeners/erc20/adrian-token-listener.js';
+import { syncHistoricalERC20 } from './listeners/erc20/historical-sync.js';
+import { ADRIAN_TOKEN_CONFIG } from './contracts/config/adrian-token.js';
+import { getLastSyncedBlockByContract } from './supabase/client.js';
+import { createViemClient } from './listener.js';
 import 'dotenv/config';
 
 // Configuración del intervalo de sincronización (en milisegundos)
@@ -70,7 +74,39 @@ async function runContinuousListener() {
     // Sincronizar $ADRIAN Token (ERC20)
     try {
       const startTime = Date.now();
-      const result = await syncERC20Events();
+      
+      // Detectar si hay muchos bloques pendientes (más de 100,000 bloques)
+      // Si es así, usar sincronización histórica automáticamente
+      const client = createViemClient();
+      const contractAddress = ADRIAN_TOKEN_CONFIG.address;
+      const lastSyncedBlock = BigInt(
+        await getLastSyncedBlockByContract(contractAddress)
+      );
+      const latestBlock = await client.getBlockNumber();
+      
+      const startBlock =
+        lastSyncedBlock === 0n && ADRIAN_TOKEN_CONFIG.startBlock
+          ? ADRIAN_TOKEN_CONFIG.startBlock
+          : lastSyncedBlock === 0n
+            ? 0n
+            : lastSyncedBlock + 1n;
+      
+      const blocksToProcess = latestBlock - startBlock + 1n;
+      const HISTORICAL_THRESHOLD = 100000n; // 100,000 bloques
+      
+      let result;
+      if (blocksToProcess > HISTORICAL_THRESHOLD && iteration === 1) {
+        // Primera iteración y hay muchos bloques pendientes: usar sync histórico
+        console.log('');
+        console.log(`[ADRIAN-ERC20] 📜 Detectados ${blocksToProcess} bloques pendientes (>${HISTORICAL_THRESHOLD})`);
+        console.log('[ADRIAN-ERC20] 🔄 Usando sincronización histórica automática...');
+        await syncHistoricalERC20();
+        result = await syncERC20Events(); // Sincronizar cualquier bloque nuevo
+      } else {
+        // Sincronización normal
+        result = await syncERC20Events();
+      }
+      
       const duration = Date.now() - startTime;
 
       console.log('');
