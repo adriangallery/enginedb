@@ -37,7 +37,6 @@ import { processShopEvent } from './processors/shop-processor.js';
 
 // Configuración
 const BLOCKS_PER_BATCH = 10n; // Bloques por batch
-const PARALLEL_REQUESTS = 3; // Requests paralelos
 const SAVE_PROGRESS_INTERVAL = 50; // Guardar progreso cada N batches
 
 /**
@@ -225,8 +224,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   );
 
   // 2. Verificar si hay trabajo pendiente
-  const hasForwardWork = contractStates.some((s) => s.hasMoreForward);
-  const hasBackwardWork = contractStates.some((s) => s.hasMoreBackward);
+  let hasForwardWork = contractStates.some((s) => s.hasMoreForward);
+  let hasBackwardWork = contractStates.some((s) => s.hasMoreBackward);
 
   if (!hasForwardWork && !hasBackwardWork) {
     console.log('✅ Todos los contratos están completamente sincronizados');
@@ -254,7 +253,6 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     console.log(`\n🔄 Batch ${batchCounter + 1} - Modo: ${mode}`);
 
     let batchEvents = 0;
-    let processedBlocks = 0n;
 
     if (isForwardMode && hasForwardWork) {
       // Modo FORWARD: sincronizar hacia adelante
@@ -312,7 +310,6 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
             }
           }
 
-          processedBlocks = toBlock - fromBlock + 1n;
           console.log(`  ✅ Forward: ${fromBlock} → ${toBlock} (${logs.length} eventos)`);
         }
       }
@@ -324,6 +321,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
         // Determinar rango a procesar (hacia atrás)
         const maxBackwardBlock = activeStates.reduce(
           (max, s) => {
+            if (s.lastHistoricalBlock === null) return max;
             const backwardStart = s.lastHistoricalBlock - 1n;
             return backwardStart > max ? backwardStart : max;
           },
@@ -371,13 +369,12 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
           // Actualizar estados backward
           for (const state of activeStates) {
-            if (state.lastHistoricalBlock > fromBlock) {
+            if (state.lastHistoricalBlock !== null && state.lastHistoricalBlock > fromBlock) {
               state.lastHistoricalBlock = fromBlock;
               state.hasMoreBackward = state.lastHistoricalBlock > state.startBlock;
             }
           }
 
-          processedBlocks = toBlock - fromBlock + 1n;
           console.log(`  ✅ Backward: ${fromBlock} → ${toBlock} (${logs.length} eventos)`);
         }
       }

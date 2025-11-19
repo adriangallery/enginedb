@@ -82,8 +82,9 @@ async function runContinuousListener() {
         
         // Mostrar estado de cada contrato
         for (const state of result.contractStates) {
+          const hasMore = state.hasMoreForward || state.hasMoreBackward;
           console.log(
-            `   ${state.hasMore ? '📦' : '✅'} ${state.name}: ${state.eventsProcessed} eventos | Bloque: ${state.lastSyncedBlock}`
+            `   ${hasMore ? '📦' : '✅'} ${state.name}: ${state.eventsProcessed} eventos | Forward: ${state.lastSyncedBlock} | Backward: ${state.lastHistoricalBlock || 'N/A'}`
           );
         }
         
