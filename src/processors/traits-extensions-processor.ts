@@ -4,16 +4,7 @@
  */
 
 import { getSupabaseClient } from '../supabase/client.js';
-import type {
-  AdrianTraitsExtensionsEvent,
-  TraitEquippedEvent,
-  TraitUnequippedEvent,
-  TraitAppliedEvent,
-  TraitsAppliedBatchEvent,
-  AssetAddedToInventoryEvent,
-  AssetRemovedFromInventoryEvent,
-  CoreContractCallReceivedEvent,
-} from '../contracts/types/adrian-traits-extensions-events.js';
+import type { AdrianTraitsExtensionsEvent } from '../contracts/types/adrian-traits-extensions-events.js';
 import { bigintToString } from '../contracts/types/adrian-traits-extensions-events.js';
 
 /**

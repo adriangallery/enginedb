@@ -4,22 +4,7 @@
  */
 
 import { getSupabaseClient } from '../supabase/client.js';
-import type {
-  AdrianShopEvent,
-  ItemPurchasedEvent,
-  BatchPurchaseEvent,
-  FreeItemClaimedEvent,
-  ShopItemConfiguredEvent,
-  ShopItemTimingSetEvent,
-  ShopItemStatusChangedEvent,
-  ShopItemPriceChangedEvent,
-  ShopItemQuantityUpdatedEvent,
-  AllowlistConfiguredEvent,
-  WalletsAddedToAllowlistEvent,
-  WalletsRemovedFromAllowlistEvent,
-  ShopGlobalStatusChangedEvent,
-  TreasuryOverrideSetEvent,
-} from '../contracts/types/adrian-shop-events.js';
+import type { AdrianShopEvent } from '../contracts/types/adrian-shop-events.js';
 import { bigintToString } from '../contracts/types/adrian-shop-events.js';
 
 /**
