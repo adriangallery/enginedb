@@ -41,11 +41,12 @@ const BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
   : 10n; // Bloques por batch
 
 // Número de requests paralelos para procesar múltiples rangos simultáneamente
-// Para histórico: usar valores más altos (10-20) para acelerar
+// Para histórico: usar valores más altos (5-10) para acelerar
 // Para tiempo real: 3-5 es suficiente
+// Nota: Alchemy Free tier tiene límites de rate, usar con moderación
 const PARALLEL_REQUESTS = process.env.PARALLEL_REQUESTS
   ? parseInt(process.env.PARALLEL_REQUESTS)
-  : 10; // Default: 10 requests paralelos (aumentado para acelerar histórico)
+  : 5; // Default: 5 requests paralelos (balance entre velocidad y rate limits)
 
 const SAVE_PROGRESS_INTERVAL = 50; // Guardar progreso cada N batches
 
@@ -149,12 +150,23 @@ async function processBlockRange(
       });
       return logs;
     } catch (error: any) {
+      // Detectar errores 429 (Too Many Requests) y usar backoff más largo
+      const isRateLimit = error?.status === 429 || 
+                         error?.message?.includes('429') ||
+                         error?.details?.includes('Too Many Requests');
+      
       if (attempt === retries) {
         console.error(`❌ Error después de ${retries} intentos:`, error.message);
         throw error;
       }
-      console.warn(`⚠️  Intento ${attempt}/${retries} falló, reintentando...`);
-      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      
+      // Backoff exponencial más largo para rate limits
+      const delay = isRateLimit 
+        ? Math.min(5000 * Math.pow(2, attempt - 1), 30000) // Hasta 30 segundos para rate limits
+        : 1000 * attempt; // Delay normal para otros errores
+      
+      console.warn(`⚠️  Intento ${attempt}/${retries} falló${isRateLimit ? ' (Rate Limit)' : ''}, reintentando en ${delay}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
   return [];
@@ -300,7 +312,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
         if (minForwardBlock <= currentBlock && parallelBatches > 0) {
           const activeAddresses = activeStates.map((s) => s.address);
           
-          // Crear múltiples requests paralelos
+          // Crear múltiples requests paralelos con delay entre ellos para evitar rate limiting
           const parallelPromises: Promise<Log[]>[] = [];
           const blockRanges: { from: bigint; to: bigint }[] = [];
 
@@ -312,13 +324,21 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
             if (fromBlock <= currentBlock) {
               blockRanges.push({ from: fromBlock, to: toBlock });
+              // Agregar delay progresivo entre requests para evitar rate limiting
+              // Delay de 100ms entre cada request paralelo
+              const delay = i * 100;
               parallelPromises.push(
-                processBlockRange(client, activeAddresses, fromBlock, toBlock)
+                (async () => {
+                  if (delay > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, delay));
+                  }
+                  return processBlockRange(client, activeAddresses, fromBlock, toBlock);
+                })()
               );
             }
           }
 
-          // Ejecutar todos los requests en paralelo
+          // Ejecutar todos los requests en paralelo (con delays internos)
           const parallelResults = await Promise.all(parallelPromises);
           const allLogs: Log[] = [];
           for (const logs of parallelResults) {
@@ -399,7 +419,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           if (parallelBatches > 0) {
             const activeAddresses = activeStates.map((s) => s.address);
             
-            // Crear múltiples requests paralelos (hacia atrás)
+            // Crear múltiples requests paralelos (hacia atrás) con delay entre ellos
             const parallelPromises: Promise<Log[]>[] = [];
             const blockRanges: { from: bigint; to: bigint }[] = [];
 
@@ -412,13 +432,21 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
               if (fromBlock <= toBlock && toBlock >= minStartBlock) {
                 blockRanges.push({ from: fromBlock, to: toBlock });
+                // Agregar delay progresivo entre requests para evitar rate limiting
+                // Delay de 100ms entre cada request paralelo
+                const delay = i * 100;
                 parallelPromises.push(
-                  processBlockRange(client, activeAddresses, fromBlock, toBlock)
+                  (async () => {
+                    if (delay > 0) {
+                      await new Promise((resolve) => setTimeout(resolve, delay));
+                    }
+                    return processBlockRange(client, activeAddresses, fromBlock, toBlock);
+                  })()
                 );
               }
             }
 
-            // Ejecutar todos los requests en paralelo
+            // Ejecutar todos los requests en paralelo (con delays internos)
             const parallelResults = await Promise.all(parallelPromises);
             const allLogs: Log[] = [];
             for (const logs of parallelResults) {
@@ -497,9 +525,10 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     hasForwardWork = contractStates.some((s) => s.hasMoreForward);
     hasBackwardWork = contractStates.some((s) => s.hasMoreBackward);
 
-    // Pequeña pausa entre batches
+    // Pausa entre batches para evitar rate limiting
+    // Aumentado a 1 segundo para dar más tiempo entre ciclos
     if (hasForwardWork || hasBackwardWork) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
