@@ -14,10 +14,21 @@ import type { Log } from 'viem';
 import { FLOOR_ENGINE_CONFIG } from './contracts/config/floor-engine.js';
 import { ADRIAN_TOKEN_CONFIG } from './contracts/config/adrian-token.js';
 import { ADRIAN_LAB_CORE_CONFIG } from './contracts/config/adrian-lab-core.js';
+import { ADRIAN_TRAITS_CORE_CONFIG } from './contracts/config/adrian-traits-core.js';
+import { ADRIAN_TRAITS_EXTENSIONS_CONFIG } from './contracts/config/adrian-traits-extensions.js';
+import { ADRIAN_SHOP_CONFIG } from './contracts/config/adrian-shop.js';
 
 // Decoders de eventos
 import { decodeLog as decodeERC20Log } from './listeners/erc20/adrian-token-listener.js';
 import { decodeLog as decodeERC721Log } from './listeners/erc721/adrian-lab-core-listener.js';
+import { decodeLog as decodeERC1155Log } from './listeners/erc1155/adrian-traits-core-listener.js';
+import { decodeLog as decodeTraitsExtensionsLog } from './listeners/custom/adrian-traits-extensions-listener.js';
+import { decodeLog as decodeShopLog } from './listeners/custom/adrian-shop-listener.js';
+
+// Procesadores
+import { processERC1155Event } from './processors/erc1155-processor.js';
+import { processTraitsExtensionsEvent } from './processors/traits-extensions-processor.js';
+import { processShopEvent } from './processors/shop-processor.js';
 
 // Configuración
 const BLOCKS_PER_BATCH = 10n; // Bloques por batch
@@ -64,6 +75,30 @@ const CONTRACT_REGISTRY: ContractDefinition[] = [
     decoder: decodeERC721Log,
     processor: processERC721Event,
     color: '🟣',
+  },
+  {
+    name: 'TraitsCore',
+    address: ADRIAN_TRAITS_CORE_CONFIG.address,
+    startBlock: ADRIAN_TRAITS_CORE_CONFIG.startBlock || 0n,
+    decoder: decodeERC1155Log,
+    processor: processERC1155Event,
+    color: '🔵',
+  },
+  {
+    name: 'TraitsExtensions',
+    address: ADRIAN_TRAITS_EXTENSIONS_CONFIG.address,
+    startBlock: ADRIAN_TRAITS_EXTENSIONS_CONFIG.startBlock || 0n,
+    decoder: decodeTraitsExtensionsLog,
+    processor: processTraitsExtensionsEvent,
+    color: '🟠',
+  },
+  {
+    name: 'AdrianShop',
+    address: ADRIAN_SHOP_CONFIG.address,
+    startBlock: ADRIAN_SHOP_CONFIG.startBlock || 0n,
+    decoder: decodeShopLog,
+    processor: processShopEvent,
+    color: '🛒',
   },
 ];
 

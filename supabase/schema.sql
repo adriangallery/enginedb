@@ -380,3 +380,196 @@ COMMENT ON TABLE erc721_approvals IS 'Histórico de eventos Approval de contrato
 COMMENT ON TABLE erc721_approvals_for_all IS 'Histórico de eventos ApprovalForAll de contratos ERC721';
 COMMENT ON TABLE erc721_custom_events IS 'Eventos custom de contratos ERC721 (TokenMinted, SkinCreated, MutationAssigned, etc.)';
 
+-- ============================================================================
+-- TABLAS ERC1155 - Para contratos ERC1155 como AdrianTraitsCore
+-- Separadas con prefijo erc1155_ para no interferir con otros contratos
+-- ============================================================================
+
+-- ============================================================================
+-- Tabla: erc1155_transfers_single
+-- Propósito: Histórico de eventos TransferSingle de contratos ERC1155
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc1155_transfers_single (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  operator TEXT NOT NULL,
+  from_address TEXT NOT NULL,
+  to_address TEXT NOT NULL,
+  token_id TEXT NOT NULL,
+  value TEXT NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc1155_transfers_single_contract_address ON erc1155_transfers_single(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc1155_transfers_single_from_address ON erc1155_transfers_single(from_address);
+CREATE INDEX IF NOT EXISTS idx_erc1155_transfers_single_to_address ON erc1155_transfers_single(to_address);
+CREATE INDEX IF NOT EXISTS idx_erc1155_transfers_single_token_id ON erc1155_transfers_single(contract_address, token_id);
+CREATE INDEX IF NOT EXISTS idx_erc1155_transfers_single_block_number ON erc1155_transfers_single(block_number);
+
+-- ============================================================================
+-- Tabla: erc1155_transfers_batch
+-- Propósito: Histórico de eventos TransferBatch de contratos ERC1155
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc1155_transfers_batch (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  operator TEXT NOT NULL,
+  from_address TEXT NOT NULL,
+  to_address TEXT NOT NULL,
+  token_ids TEXT[] NOT NULL,
+  values TEXT[] NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc1155_transfers_batch_contract_address ON erc1155_transfers_batch(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc1155_transfers_batch_from_address ON erc1155_transfers_batch(from_address);
+CREATE INDEX IF NOT EXISTS idx_erc1155_transfers_batch_to_address ON erc1155_transfers_batch(to_address);
+CREATE INDEX IF NOT EXISTS idx_erc1155_transfers_batch_block_number ON erc1155_transfers_batch(block_number);
+
+-- ============================================================================
+-- Tabla: erc1155_approvals_for_all
+-- Propósito: Histórico de eventos ApprovalForAll de contratos ERC1155
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc1155_approvals_for_all (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  account TEXT NOT NULL,
+  operator TEXT NOT NULL,
+  approved BOOLEAN NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc1155_approvals_for_all_contract_address ON erc1155_approvals_for_all(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc1155_approvals_for_all_account ON erc1155_approvals_for_all(account);
+CREATE INDEX IF NOT EXISTS idx_erc1155_approvals_for_all_operator ON erc1155_approvals_for_all(operator);
+CREATE INDEX IF NOT EXISTS idx_erc1155_approvals_for_all_block_number ON erc1155_approvals_for_all(block_number);
+
+-- ============================================================================
+-- Tabla: erc1155_uri_updates
+-- Propósito: Histórico de eventos URI de contratos ERC1155
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc1155_uri_updates (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  token_id TEXT NOT NULL,
+  uri TEXT NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc1155_uri_updates_contract_address ON erc1155_uri_updates(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc1155_uri_updates_token_id ON erc1155_uri_updates(contract_address, token_id);
+CREATE INDEX IF NOT EXISTS idx_erc1155_uri_updates_block_number ON erc1155_uri_updates(block_number);
+
+-- ============================================================================
+-- Tabla: erc1155_custom_events
+-- Propósito: Eventos custom de contratos ERC1155 (AssetRegistered, AssetMinted, etc.)
+-- Usa JSONB para flexibilidad en estructuras de eventos diferentes
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc1155_custom_events (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  event_name TEXT NOT NULL,
+  event_data JSONB NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc1155_custom_events_contract_address ON erc1155_custom_events(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc1155_custom_events_event_name ON erc1155_custom_events(event_name);
+CREATE INDEX IF NOT EXISTS idx_erc1155_custom_events_block_number ON erc1155_custom_events(block_number);
+-- Índice GIN para búsquedas en JSONB
+CREATE INDEX IF NOT EXISTS idx_erc1155_custom_events_event_data ON erc1155_custom_events USING GIN (event_data);
+
+-- Comentarios para documentación
+COMMENT ON TABLE erc1155_transfers_single IS 'Histórico de eventos TransferSingle de contratos ERC1155';
+COMMENT ON TABLE erc1155_transfers_batch IS 'Histórico de eventos TransferBatch de contratos ERC1155';
+COMMENT ON TABLE erc1155_approvals_for_all IS 'Histórico de eventos ApprovalForAll de contratos ERC1155';
+COMMENT ON TABLE erc1155_uri_updates IS 'Histórico de eventos URI de contratos ERC1155';
+COMMENT ON TABLE erc1155_custom_events IS 'Eventos custom de contratos ERC1155 (AssetRegistered, AssetMinted, AssetBurned, etc.)';
+
+-- ============================================================================
+-- TABLA TRAITS EXTENSIONS - Para eventos de AdrianTraitsExtensions
+-- ============================================================================
+
+-- ============================================================================
+-- Tabla: traits_extensions_events
+-- Propósito: Eventos de AdrianTraitsExtensions (TraitApplied, AssetAddedToInventory, etc.)
+-- Usa JSONB para flexibilidad en estructuras de eventos diferentes
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS traits_extensions_events (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  event_name TEXT NOT NULL,
+  event_data JSONB NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_traits_extensions_events_contract_address ON traits_extensions_events(contract_address);
+CREATE INDEX IF NOT EXISTS idx_traits_extensions_events_event_name ON traits_extensions_events(event_name);
+CREATE INDEX IF NOT EXISTS idx_traits_extensions_events_block_number ON traits_extensions_events(block_number);
+-- Índice GIN para búsquedas en JSONB
+CREATE INDEX IF NOT EXISTS idx_traits_extensions_events_event_data ON traits_extensions_events USING GIN (event_data);
+
+-- Comentarios para documentación
+COMMENT ON TABLE traits_extensions_events IS 'Eventos de AdrianTraitsExtensions (TraitApplied, AssetAddedToInventory, etc.)';
+
+-- ============================================================================
+-- TABLA SHOP - Para eventos de AdrianShopv1
+-- ============================================================================
+
+-- ============================================================================
+-- Tabla: shop_events
+-- Propósito: Eventos de AdrianShopv1 (ItemPurchased, ShopItemConfigured, etc.)
+-- Usa JSONB para flexibilidad en estructuras de eventos diferentes
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS shop_events (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  event_name TEXT NOT NULL,
+  event_data JSONB NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_shop_events_contract_address ON shop_events(contract_address);
+CREATE INDEX IF NOT EXISTS idx_shop_events_event_name ON shop_events(event_name);
+CREATE INDEX IF NOT EXISTS idx_shop_events_block_number ON shop_events(block_number);
+-- Índice GIN para búsquedas en JSONB
+CREATE INDEX IF NOT EXISTS idx_shop_events_event_data ON shop_events USING GIN (event_data);
+
+-- Comentarios para documentación
+COMMENT ON TABLE shop_events IS 'Eventos de AdrianShopv1 (ItemPurchased, ShopItemConfigured, etc.)';
+
