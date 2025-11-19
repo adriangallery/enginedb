@@ -164,9 +164,20 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   const contractStates: ContractSyncState[] = [];
   
   for (const contract of CONTRACT_REGISTRY) {
-    const lastSyncedBlock = BigInt(
+    let lastSyncedBlock = BigInt(
       await getLastSyncedBlockByContract(contract.address)
     );
+    
+    // Si no tiene registro y el startBlock es mayor que 0, inicializar con startBlock - 1
+    if (lastSyncedBlock === 0n && contract.startBlock > 0n) {
+      const initialBlock = contract.startBlock - 1n;
+      await updateLastSyncedBlockByContract(
+        contract.address,
+        Number(initialBlock)
+      );
+      lastSyncedBlock = initialBlock;
+    }
+    
     const startBlock =
       lastSyncedBlock === 0n ? contract.startBlock : lastSyncedBlock + 1n;
 
