@@ -1,6 +1,6 @@
 /**
- * Listener para el contrato $ADRIAN Token (ERC20)
- * Indexa eventos Transfer, Approval y eventos custom
+ * Listener para el contrato AdrianLABCore (ERC721)
+ * Indexa eventos Transfer, Approval, ApprovalForAll y eventos custom
  */
 
 import {
@@ -10,14 +10,14 @@ import {
   type Log,
 } from 'viem';
 import { base } from 'viem/chains';
-import { ADRIAN_TOKEN_CONFIG } from '../../contracts/config/adrian-token.js';
-import { ADRIAN_TOKEN_ABI } from '../../contracts/abis/adrian-token-abi.js';
+import { ADRIAN_LAB_CORE_CONFIG } from '../../contracts/config/adrian-lab-core.js';
+import { ADRIAN_LAB_CORE_ABI } from '../../contracts/abis/adrian-lab-core-abi.js';
 import {
   getLastSyncedBlockByContract,
   updateLastSyncedBlockByContract,
 } from '../../supabase/client.js';
-import { processERC20Event } from '../../processors/erc20-processor.js';
-import type { AdrianTokenEvent } from '../../contracts/types/adrian-token-events.js';
+import { processERC721Event } from '../../processors/erc721-processor.js';
+import type { AdrianLabCoreEvent } from '../../contracts/types/adrian-lab-core-events.js';
 
 /**
  * Configuración del listener
@@ -70,7 +70,7 @@ async function retryWithBackoff<T>(
       if (isRateLimit && attempt < maxRetries - 1) {
         const delay = initialDelay * Math.pow(2, attempt); // Backoff exponencial
         console.warn(
-          `[ADRIAN-ERC20] ⚠️  Rate limit detectado (intento ${attempt + 1}/${maxRetries}). Esperando ${delay}ms...`
+          `[ADRIAN-ERC721] ⚠️  Rate limit detectado (intento ${attempt + 1}/${maxRetries}). Esperando ${delay}ms...`
         );
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
@@ -102,7 +102,7 @@ async function processBlockRange(
     return logs;
   }).catch((error) => {
     console.error(
-      `[ADRIAN-ERC20] ❌ Error al obtener logs para bloques ${fromBlock}-${toBlock} después de retries:`,
+      `[ADRIAN-ERC721] ❌ Error al obtener logs para bloques ${fromBlock}-${toBlock} después de retries:`,
       error
     );
     return []; // Retornar array vacío en caso de error después de todos los retries
@@ -112,10 +112,10 @@ async function processBlockRange(
 /**
  * Decodificar un log raw en un evento tipado
  */
-export function decodeLog(log: Log): AdrianTokenEvent | null {
+export function decodeLog(log: Log): AdrianLabCoreEvent | null {
   try {
     const decoded = decodeEventLog({
-      abi: ADRIAN_TOKEN_ABI,
+      abi: ADRIAN_LAB_CORE_ABI,
       data: log.data,
       topics: log.topics,
     });
@@ -136,7 +136,7 @@ export function decodeLog(log: Log): AdrianTokenEvent | null {
           eventName: 'Transfer',
           from: args.from,
           to: args.to,
-          value: args.value,
+          tokenId: args.tokenId,
         };
 
       case 'Approval':
@@ -144,119 +144,214 @@ export function decodeLog(log: Log): AdrianTokenEvent | null {
           ...metadata,
           eventName: 'Approval',
           owner: args.owner,
-          spender: args.spender,
-          value: args.value,
+          approved: args.approved,
+          tokenId: args.tokenId,
         };
 
-      case 'TaxFeeUpdated':
+      case 'ApprovalForAll':
         return {
           ...metadata,
-          eventName: 'TaxFeeUpdated',
-          newTaxFee: args.newTaxFee,
+          eventName: 'ApprovalForAll',
+          owner: args.owner,
+          operator: args.operator,
+          approved: args.approved,
         };
 
-      case 'CreatorFeeUpdated':
+      case 'TokenMinted':
         return {
           ...metadata,
-          eventName: 'CreatorFeeUpdated',
-          newCreatorFee: args.newCreatorFee,
-        };
-
-      case 'BurnFeeUpdated':
-        return {
-          ...metadata,
-          eventName: 'BurnFeeUpdated',
-          newBurnFee: args.newBurnFee,
-        };
-
-      case 'TaxAddressUpdated':
-        return {
-          ...metadata,
-          eventName: 'TaxAddressUpdated',
-          newTaxAddress: args.newTaxAddress,
-        };
-
-      case 'CreatorAddressUpdated':
-        return {
-          ...metadata,
-          eventName: 'CreatorAddressUpdated',
-          newCreatorAddress: args.newCreatorAddress,
-        };
-
-      case 'FeeExemptionUpdated':
-        return {
-          ...metadata,
-          eventName: 'FeeExemptionUpdated',
-          account: args.account,
-          isExempt: args.isExempt,
-        };
-
-      case 'Staked':
-        return {
-          ...metadata,
-          eventName: 'Staked',
-          staker: args.staker,
-          amount: args.amount,
-        };
-
-      case 'WithdrawnStake':
-        return {
-          ...metadata,
-          eventName: 'WithdrawnStake',
-          staker: args.staker,
-          amount: args.amount,
-          reward: args.reward,
-        };
-
-      case 'RewardRateUpdated':
-        return {
-          ...metadata,
-          eventName: 'RewardRateUpdated',
-          newRewardRate: args.newRewardRate,
-        };
-
-      case 'GalleryAction':
-        return {
-          ...metadata,
-          eventName: 'GalleryAction',
-          from: args.from,
+          eventName: 'TokenMinted',
           to: args.to,
+          tokenId: args.tokenId,
+        };
+
+      case 'TokenBurnt':
+        return {
+          ...metadata,
+          eventName: 'TokenBurnt',
+          tokenId: args.tokenId,
+          burner: args.burner,
+        };
+
+      case 'SkinCreated':
+        return {
+          ...metadata,
+          eventName: 'SkinCreated',
+          skinId: args.skinId,
+          name: args.name,
+          rarity: args.rarity,
+        };
+
+      case 'SkinAssigned':
+        return {
+          ...metadata,
+          eventName: 'SkinAssigned',
+          tokenId: args.tokenId,
+          skinId: args.skinId,
+          name: args.name,
+        };
+
+      case 'SkinUpdated':
+        return {
+          ...metadata,
+          eventName: 'SkinUpdated',
+          skinId: args.skinId,
+          name: args.name,
+          rarity: args.rarity,
+          active: args.active,
+        };
+
+      case 'SkinRemoved':
+        return {
+          ...metadata,
+          eventName: 'SkinRemoved',
+          skinId: args.skinId,
+        };
+
+      case 'RandomSkinToggled':
+        return {
+          ...metadata,
+          eventName: 'RandomSkinToggled',
+          enabled: args.enabled,
+        };
+
+      case 'MutationAssigned':
+        return {
+          ...metadata,
+          eventName: 'MutationAssigned',
+          tokenId: args.tokenId,
+        };
+
+      case 'MutationNameAssigned':
+        return {
+          ...metadata,
+          eventName: 'MutationNameAssigned',
+          tokenId: args.tokenId,
+          newMutation: args.newMutation,
+        };
+
+      case 'SerumApplied':
+        return {
+          ...metadata,
+          eventName: 'SerumApplied',
+          tokenId: args.tokenId,
+          serumId: args.serumId,
+        };
+
+      case 'MutationSkinSet':
+        return {
+          ...metadata,
+          eventName: 'MutationSkinSet',
+          mutation: args.mutation,
+          skinId: args.skinId,
+        };
+
+      case 'SpecialSkinApplied':
+        return {
+          ...metadata,
+          eventName: 'SpecialSkinApplied',
+          tokenId: args.tokenId,
+          skinId: args.skinId,
+          mutation: args.mutation,
+        };
+
+      case 'BaseURIUpdated':
+        return {
+          ...metadata,
+          eventName: 'BaseURIUpdated',
+          newURI: args.newURI,
+        };
+
+      case 'ExtensionsContractUpdated':
+        return {
+          ...metadata,
+          eventName: 'ExtensionsContractUpdated',
+          newContract: args.newContract,
+        };
+
+      case 'TraitsContractUpdated':
+        return {
+          ...metadata,
+          eventName: 'TraitsContractUpdated',
+          newContract: args.newContract,
+        };
+
+      case 'PaymentTokenUpdated':
+        return {
+          ...metadata,
+          eventName: 'PaymentTokenUpdated',
+          newToken: args.newToken,
+        };
+
+      case 'TreasuryWalletUpdated':
+        return {
+          ...metadata,
+          eventName: 'TreasuryWalletUpdated',
+          newWallet: args.newWallet,
+        };
+
+      case 'AdminContractUpdated':
+        return {
+          ...metadata,
+          eventName: 'AdminContractUpdated',
+          newAdmin: args.newAdmin,
+        };
+
+      case 'FunctionImplementationUpdated':
+        return {
+          ...metadata,
+          eventName: 'FunctionImplementationUpdated',
+          selector: args.selector,
+          implementation: args.implementation,
+        };
+
+      case 'ProceedsWithdrawn':
+        return {
+          ...metadata,
+          eventName: 'ProceedsWithdrawn',
+          wallet: args.wallet,
           amount: args.amount,
-          action: args.action,
+        };
+
+      case 'FirstModification':
+        return {
+          ...metadata,
+          eventName: 'FirstModification',
+          tokenId: args.tokenId,
         };
 
       default:
-        console.warn(`[ADRIAN-ERC20] Evento desconocido: ${eventName}`);
+        console.warn(`[ADRIAN-ERC721] Evento desconocido: ${eventName}`);
         return null;
     }
   } catch (error) {
-    console.error('[ADRIAN-ERC20] Error al decodificar log:', error);
+    console.error('[ADRIAN-ERC721] Error al decodificar log:', error);
     return null;
   }
 }
 
 /**
- * Sincronizar eventos del contrato $ADRIAN Token
+ * Sincronizar eventos del contrato AdrianLABCore
  * @param maxBatches - Número máximo de batches a procesar (opcional, undefined = todos)
  */
-export async function syncERC20Events(maxBatches?: number): Promise<{
+export async function syncERC721Events(maxBatches?: number): Promise<{
   processed: number;
   fromBlock: bigint;
   toBlock: bigint;
   hasMore: boolean; // Indica si hay más batches pendientes
 }> {
-  console.log('[ADRIAN-ERC20] 🔄 Iniciando sincronización de eventos...');
+  console.log('[ADRIAN-ERC721] 🔄 Iniciando sincronización de eventos...');
 
   const client = createViemClient();
-  const contractAddress = ADRIAN_TOKEN_CONFIG.address;
+  const contractAddress = ADRIAN_LAB_CORE_CONFIG.address;
 
   // Obtener último bloque procesado
   const lastSyncedBlock = BigInt(
     await getLastSyncedBlockByContract(contractAddress)
   );
   const startBlock =
-    lastSyncedBlock === 0n && ADRIAN_TOKEN_CONFIG.startBlock
-      ? ADRIAN_TOKEN_CONFIG.startBlock
+    lastSyncedBlock === 0n && ADRIAN_LAB_CORE_CONFIG.startBlock
+      ? ADRIAN_LAB_CORE_CONFIG.startBlock
       : lastSyncedBlock === 0n
         ? 0n
         : lastSyncedBlock + 1n;
@@ -265,7 +360,7 @@ export async function syncERC20Events(maxBatches?: number): Promise<{
   const latestBlock = await client.getBlockNumber();
 
   if (startBlock > latestBlock) {
-    console.log('[ADRIAN-ERC20] ✅ Ya estamos sincronizados al último bloque');
+    console.log('[ADRIAN-ERC721] ✅ Ya estamos sincronizados al último bloque');
     return { processed: 0, fromBlock: startBlock, toBlock: latestBlock, hasMore: false };
   }
 
@@ -277,10 +372,10 @@ export async function syncERC20Events(maxBatches?: number): Promise<{
   );
 
   console.log(
-    `[ADRIAN-ERC20] 📊 Procesando ${blocksToProcess} bloques (${totalBatches} batches de ${BLOCKS_PER_BATCH}) desde ${startBlock} hasta ${latestBlock}`
+    `[ADRIAN-ERC721] 📊 Procesando ${blocksToProcess} bloques (${totalBatches} batches de ${BLOCKS_PER_BATCH}) desde ${startBlock} hasta ${latestBlock}`
   );
   console.log(
-    `[ADRIAN-ERC20] ⚡ Usando ${PARALLEL_REQUESTS} requests paralelos para procesar ${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo`
+    `[ADRIAN-ERC721] ⚡ Usando ${PARALLEL_REQUESTS} requests paralelos para procesar ${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo`
   );
 
   // Configuración: guardar progreso cada N batches
@@ -333,20 +428,20 @@ export async function syncERC20Events(maxBatches?: number): Promise<{
     for (const log of batchLogs) {
       const event = decodeLog(log);
       if (event) {
-        await processERC20Event(event, contractAddress);
+        await processERC721Event(event, contractAddress);
         processedEvents++;
       }
     }
 
     console.log(
-      `[ADRIAN-ERC20] 📦 Procesados ${processedBatches}/${totalBatches} batches (${allLogs.length} eventos encontrados, ${processedEvents} procesados)`
+      `[ADRIAN-ERC721] 📦 Procesados ${processedBatches}/${totalBatches} batches (${allLogs.length} eventos encontrados, ${processedEvents} procesados)`
     );
 
     // Guardar progreso cada SAVE_PROGRESS_INTERVAL batches
     if (processedBatches % SAVE_PROGRESS_INTERVAL === 0 || i + PARALLEL_REQUESTS >= batchesToProcess) {
       await updateLastSyncedBlockByContract(contractAddress, Number(lastProcessedBlock));
       console.log(
-        `[ADRIAN-ERC20] 💾 Progreso guardado: bloque ${lastProcessedBlock} (${processedBatches}/${totalBatches} batches)`
+        `[ADRIAN-ERC721] 💾 Progreso guardado: bloque ${lastProcessedBlock} (${processedBatches}/${totalBatches} batches)`
       );
     }
 
@@ -358,7 +453,7 @@ export async function syncERC20Events(maxBatches?: number): Promise<{
   }
 
   console.log(
-    `[ADRIAN-ERC20] 📝 Total de eventos encontrados: ${allLogs.length}, procesados: ${processedEvents}`
+    `[ADRIAN-ERC721] 📝 Total de eventos encontrados: ${allLogs.length}, procesados: ${processedEvents}`
   );
 
   // Asegurar que el progreso final esté guardado
@@ -369,10 +464,10 @@ export async function syncERC20Events(maxBatches?: number): Promise<{
   const hasMore = lastProcessedBlock < currentLatestBlock;
 
   console.log(
-    `[ADRIAN-ERC20] 🎉 Sincronización completada: ${processedEvents} eventos procesados de ${allLogs.length} logs encontrados`
+    `[ADRIAN-ERC721] 🎉 Sincronización completada: ${processedEvents} eventos procesados de ${allLogs.length} logs encontrados`
   );
   console.log(
-    `[ADRIAN-ERC20] 📍 Bloques procesados: ${startBlock} → ${lastProcessedBlock} (${Number(lastProcessedBlock - startBlock + 1n)} bloques)`
+    `[ADRIAN-ERC721] 📍 Bloques procesados: ${startBlock} → ${lastProcessedBlock} (${Number(lastProcessedBlock - startBlock + 1n)} bloques)`
   );
 
   return {

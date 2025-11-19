@@ -316,7 +316,7 @@ async function processConfigEvent(
 /**
  * Decodificar un log raw en un evento tipado
  */
-function decodeLog(log: Log): FloorEngineEvent | null {
+export function decodeLog(log: Log): FloorEngineEvent | null {
   try {
     const decoded = decodeEventLog({
       abi: FLOOR_ENGINE_ABI,

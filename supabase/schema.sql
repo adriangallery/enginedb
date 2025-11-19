@@ -275,3 +275,108 @@ COMMENT ON TABLE erc20_transfers IS 'Histórico de eventos Transfer de contratos
 COMMENT ON TABLE erc20_approvals IS 'Histórico de eventos Approval de contratos ERC20';
 COMMENT ON TABLE erc20_custom_events IS 'Eventos custom de contratos ERC20 (TaxFeeUpdated, Staked, etc.)';
 
+-- ============================================================================
+-- TABLAS ERC721 - Para contratos ERC721 como AdrianLABCore (AdrianZERO)
+-- Separadas con prefijo erc721_ para no interferir con FloorEngine o ERC20
+-- ============================================================================
+
+-- ============================================================================
+-- Tabla: erc721_transfers
+-- Propósito: Histórico de eventos Transfer de contratos ERC721
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc721_transfers (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  from_address TEXT NOT NULL,
+  to_address TEXT NOT NULL,
+  token_id NUMERIC NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc721_transfers_contract_address ON erc721_transfers(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc721_transfers_from_address ON erc721_transfers(from_address);
+CREATE INDEX IF NOT EXISTS idx_erc721_transfers_to_address ON erc721_transfers(to_address);
+CREATE INDEX IF NOT EXISTS idx_erc721_transfers_token_id ON erc721_transfers(contract_address, token_id);
+CREATE INDEX IF NOT EXISTS idx_erc721_transfers_block_number ON erc721_transfers(block_number);
+
+-- ============================================================================
+-- Tabla: erc721_approvals
+-- Propósito: Histórico de eventos Approval de contratos ERC721
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc721_approvals (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  approved TEXT NOT NULL,
+  token_id NUMERIC NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc721_approvals_contract_address ON erc721_approvals(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc721_approvals_owner ON erc721_approvals(owner);
+CREATE INDEX IF NOT EXISTS idx_erc721_approvals_token_id ON erc721_approvals(contract_address, token_id);
+CREATE INDEX IF NOT EXISTS idx_erc721_approvals_block_number ON erc721_approvals(block_number);
+
+-- ============================================================================
+-- Tabla: erc721_approvals_for_all
+-- Propósito: Histórico de eventos ApprovalForAll de contratos ERC721
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc721_approvals_for_all (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  operator TEXT NOT NULL,
+  approved BOOLEAN NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc721_approvals_for_all_contract_address ON erc721_approvals_for_all(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc721_approvals_for_all_owner ON erc721_approvals_for_all(owner);
+CREATE INDEX IF NOT EXISTS idx_erc721_approvals_for_all_operator ON erc721_approvals_for_all(operator);
+CREATE INDEX IF NOT EXISTS idx_erc721_approvals_for_all_block_number ON erc721_approvals_for_all(block_number);
+
+-- ============================================================================
+-- Tabla: erc721_custom_events
+-- Propósito: Eventos custom de contratos ERC721 (TokenMinted, SkinCreated, etc.)
+-- Usa JSONB para flexibilidad en estructuras de eventos diferentes
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS erc721_custom_events (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  contract_address TEXT NOT NULL,
+  event_name TEXT NOT NULL,
+  event_data JSONB NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(tx_hash, log_index)
+);
+
+-- Índices para búsquedas comunes
+CREATE INDEX IF NOT EXISTS idx_erc721_custom_events_contract_address ON erc721_custom_events(contract_address);
+CREATE INDEX IF NOT EXISTS idx_erc721_custom_events_event_name ON erc721_custom_events(event_name);
+CREATE INDEX IF NOT EXISTS idx_erc721_custom_events_block_number ON erc721_custom_events(block_number);
+-- Índice GIN para búsquedas en JSONB
+CREATE INDEX IF NOT EXISTS idx_erc721_custom_events_event_data ON erc721_custom_events USING GIN (event_data);
+
+-- Comentarios para documentación
+COMMENT ON TABLE erc721_transfers IS 'Histórico de eventos Transfer de contratos ERC721';
+COMMENT ON TABLE erc721_approvals IS 'Histórico de eventos Approval de contratos ERC721';
+COMMENT ON TABLE erc721_approvals_for_all IS 'Histórico de eventos ApprovalForAll de contratos ERC721';
+COMMENT ON TABLE erc721_custom_events IS 'Eventos custom de contratos ERC721 (TokenMinted, SkinCreated, MutationAssigned, etc.)';
+
