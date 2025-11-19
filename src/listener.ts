@@ -452,7 +452,7 @@ export function decodeLog(log: Log): FloorEngineEvent | null {
 /**
  * Procesar un evento según su tipo
  */
-export async function processEvent(event: FloorEngineEvent): Promise<void> {
+export async function processEvent(event: FloorEngineEvent, _contractAddress?: string): Promise<void> {
   switch (event.eventName) {
     case 'Listed':
       await processListedEvent(event);

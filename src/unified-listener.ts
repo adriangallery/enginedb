@@ -233,12 +233,9 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
         try {
           const event = contract.decoder(log);
           if (event) {
-            // processFloorEngineEvent solo toma el event, los demás toman (event, address)
-            if (contract.name === 'FloorEngine') {
-              await contract.processor(event);
-            } else {
-              await contract.processor(event, contract.address);
-            }
+            // Siempre pasar el address como segundo parámetro
+            // FloorEngine lo ignora, pero los demás lo necesitan
+            await contract.processor(event, contract.address);
             
             const state = contractStates.find(
               (s) => s.address === contract.address
