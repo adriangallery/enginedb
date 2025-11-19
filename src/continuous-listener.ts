@@ -1,11 +1,12 @@
 /**
  * Listener continuo para Railway
  * Se ejecuta en un loop infinito con intervalos configurables
- * Sincroniza eventos del contrato FloorEngine y $ADRIAN Token en Base mainnet
+ * Sincroniza eventos de FloorEngine, $ADRIAN Token (ERC20) y AdrianLABCore (ERC721) en Base mainnet
  */
 
 import { syncEvents } from './listener.js';
 import { syncERC20Events } from './listeners/erc20/adrian-token-listener.js';
+import { syncERC721Events } from './listeners/erc721/adrian-lab-core-listener.js';
 import 'dotenv/config';
 
 // Configuración del intervalo de sincronización (en milisegundos)
@@ -53,80 +54,134 @@ async function runContinuousListener() {
     console.log('');
 
     // Intercalar entre contratos: procesar batches limitados de cada uno
-    let floorEngineHasMore = true;
-    let erc20HasMore = true;
+    // Siempre intentamos procesar todos los contratos para no perder nuevos eventos
+    // mientras procesamos histórico de otros contratos
+    let hasAnyWork = true;
+    
+    // Contador para evitar loops infinitos
+    let round = 0;
+    const MAX_ROUNDS = 1000; // Límite de seguridad
+    
+    console.log('🔄 Iniciando ciclo de intercalación entre contratos...');
+    console.log('💡 Se procesarán todos los contratos en cada ronda para capturar nuevos eventos');
 
-    // Continuar mientras alguno de los contratos tenga trabajo pendiente
-    while (floorEngineHasMore || erc20HasMore) {
-      // Procesar FloorEngine (si tiene trabajo pendiente)
-      if (floorEngineHasMore) {
-        try {
-          const startTime = Date.now();
-          const result = await syncEvents(BATCHES_PER_CONTRACT);
-          const duration = Date.now() - startTime;
+    // Alternar entre todos los contratos continuamente
+    // En cada ronda, cada contrato verifica si tiene trabajo y lo procesa
+    while (hasAnyWork && round < MAX_ROUNDS) {
+      round++;
+      
+      let floorEngineHasMore = false;
+      let erc20HasMore = false;
+      let erc721HasMore = false;
+      
+      console.log('');
+      console.log(`🔄 Ronda #${round} - Procesando todos los contratos...`);
+      
+      // Procesar FloorEngine (siempre intenta, incluso si estaba sincronizado)
+      try {
+        const startTime = Date.now();
+        const result = await syncEvents(BATCHES_PER_CONTRACT);
+        const duration = Date.now() - startTime;
 
-          floorEngineHasMore = result.hasMore;
+        floorEngineHasMore = result.hasMore;
 
-          console.log('');
-          console.log(`[FloorEngine] ${result.hasMore ? '⏸️  Pausado' : '✅ Completado'}`);
-          console.log(`[FloorEngine] 📊 ${result.processed} eventos procesados`);
-          console.log(
-            `[FloorEngine] 📍 Bloques: ${result.fromBlock} → ${result.toBlock}`
-          );
-          console.log(`[FloorEngine] ⏱️  Duración: ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
-          if (result.hasMore) {
-            console.log(`[FloorEngine] 🔄 Continuará en siguiente ciclo...`);
-          }
-        } catch (error) {
-          console.error('');
-          console.error('[FloorEngine] ❌ Error durante la sincronización:');
-          console.error(error);
-          console.error('');
-          console.error('[FloorEngine] ⚠️  Continuando con siguiente contrato...');
-          floorEngineHasMore = false; // En caso de error, pasar al siguiente
-        }
-      }
-
-      // Procesar $ADRIAN Token (ERC20) (si tiene trabajo pendiente)
-      if (erc20HasMore) {
-        try {
-          const startTime = Date.now();
-          const result = await syncERC20Events(BATCHES_PER_CONTRACT);
-          const duration = Date.now() - startTime;
-
-          erc20HasMore = result.hasMore;
-
-          console.log('');
-          console.log(`[ADRIAN-ERC20] ${result.hasMore ? '⏸️  Pausado' : '✅ Completado'}`);
-          console.log(`[ADRIAN-ERC20] 📊 ${result.processed} eventos procesados`);
-          console.log(
-            `[ADRIAN-ERC20] 📍 Bloques: ${result.fromBlock} → ${result.toBlock}`
-          );
-          console.log(`[ADRIAN-ERC20] ⏱️  Duración: ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
-          if (result.hasMore) {
-            console.log(`[ADRIAN-ERC20] 🔄 Continuará en siguiente ciclo...`);
-          }
-        } catch (error) {
-          console.error('');
-          console.error('[ADRIAN-ERC20] ❌ Error durante la sincronización:');
-          console.error(error);
-          console.error('');
-          console.error('[ADRIAN-ERC20] ⚠️  Continuando con siguiente contrato...');
-          erc20HasMore = false; // En caso de error, pasar al siguiente
-        }
-      }
-
-      // Si ambos contratos tienen más trabajo, continuar el ciclo
-      if (floorEngineHasMore || erc20HasMore) {
         console.log('');
-        console.log('🔄 Alternando entre contratos...');
+        console.log(`[FloorEngine] ${result.hasMore ? '⏸️  Pausado' : '✅ Completado'}`);
+        console.log(`[FloorEngine] 📊 ${result.processed} eventos procesados`);
+        console.log(
+          `[FloorEngine] 📍 Bloques: ${result.fromBlock} → ${result.toBlock}`
+        );
+        console.log(`[FloorEngine] ⏱️  Duración: ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
+        if (result.hasMore) {
+          console.log(`[FloorEngine] 🔄 Continuará en siguiente ronda...`);
+        }
+      } catch (error) {
+        console.error('');
+        console.error('[FloorEngine] ❌ Error durante la sincronización:');
+        console.error(error);
+        console.error('');
+        console.error('[FloorEngine] ⚠️  Continuando con siguiente contrato...');
+        floorEngineHasMore = false; // En caso de error, pasar al siguiente
+      }
+
+      // Procesar $ADRIAN Token (ERC20) (siempre intenta)
+      try {
+        const startTime = Date.now();
+        const result = await syncERC20Events(BATCHES_PER_CONTRACT);
+        const duration = Date.now() - startTime;
+
+        erc20HasMore = result.hasMore;
+
+        console.log('');
+        console.log(`[ADRIAN-ERC20] ${result.hasMore ? '⏸️  Pausado' : '✅ Completado'}`);
+        console.log(`[ADRIAN-ERC20] 📊 ${result.processed} eventos procesados`);
+        console.log(
+          `[ADRIAN-ERC20] 📍 Bloques: ${result.fromBlock} → ${result.toBlock}`
+        );
+        console.log(`[ADRIAN-ERC20] ⏱️  Duración: ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
+        if (result.hasMore) {
+          console.log(`[ADRIAN-ERC20] 🔄 Continuará en siguiente ronda...`);
+        }
+      } catch (error) {
+        console.error('');
+        console.error('[ADRIAN-ERC20] ❌ Error durante la sincronización:');
+        console.error(error);
+        console.error('');
+        console.error('[ADRIAN-ERC20] ⚠️  Continuando con siguiente contrato...');
+        erc20HasMore = false; // En caso de error, pasar al siguiente
+      }
+
+      // Procesar AdrianLABCore (ERC721) (siempre intenta)
+      try {
+        const startTime = Date.now();
+        const result = await syncERC721Events(BATCHES_PER_CONTRACT);
+        const duration = Date.now() - startTime;
+
+        erc721HasMore = result.hasMore;
+
+        console.log('');
+        console.log(`[ADRIAN-ERC721] ${result.hasMore ? '⏸️  Pausado' : '✅ Completado'}`);
+        console.log(`[ADRIAN-ERC721] 📊 ${result.processed} eventos procesados`);
+        console.log(
+          `[ADRIAN-ERC721] 📍 Bloques: ${result.fromBlock} → ${result.toBlock}`
+        );
+        console.log(`[ADRIAN-ERC721] ⏱️  Duración: ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
+        if (result.hasMore) {
+          console.log(`[ADRIAN-ERC721] 🔄 Continuará en siguiente ronda...`);
+        }
+      } catch (error) {
+        console.error('');
+        console.error('[ADRIAN-ERC721] ❌ Error durante la sincronización:');
+        console.error(error);
+        console.error('');
+        console.error('[ADRIAN-ERC721] ⚠️  Continuando con siguiente contrato...');
+        erc721HasMore = false; // En caso de error, pasar al siguiente
+      }
+
+      // Verificar si algún contrato tiene más trabajo
+      hasAnyWork = floorEngineHasMore || erc20HasMore || erc721HasMore;
+      
+      if (hasAnyWork) {
+        console.log('');
+        console.log(`✅ Ronda #${round} completada - Hay trabajo pendiente, continuando...`);
+        console.log(`   - FloorEngine: ${floorEngineHasMore ? '📦 Con trabajo pendiente' : '✅ Sincronizado'}`);
+        console.log(`   - ADRIAN-ERC20: ${erc20HasMore ? '📦 Con trabajo pendiente' : '✅ Sincronizado'}`);
+        console.log(`   - ADRIAN-ERC721: ${erc721HasMore ? '📦 Con trabajo pendiente' : '✅ Sincronizado'}`);
         // Pequeña pausa antes de continuar
         await sleep(1000);
+      } else {
+        console.log('');
+        console.log(`✅ Ronda #${round} completada - Todos los contratos sincronizados`);
       }
     }
 
-    console.log('');
-    console.log('✅ Ambos contratos están sincronizados');
+    if (round >= MAX_ROUNDS) {
+      console.log('');
+      console.log('⚠️  Alcanzado límite de rounds, reiniciando ciclo...');
+    } else {
+      console.log('');
+      console.log('✅ Todos los contratos están sincronizados');
+    }
     console.log(`⏳ Esperando ${SYNC_INTERVAL_MINUTES} minutos hasta la próxima sincronización...`);
     console.log(`🕐 Próxima ejecución: ${new Date(Date.now() + SYNC_INTERVAL_MS).toISOString()}`);
 
