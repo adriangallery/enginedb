@@ -14,9 +14,309 @@ El sistema indexa eventos de **6 contratos** en tiempo real:
 
 ---
 
+## 📋 Direcciones de Contratos
+
+| Contrato | Dirección | Tipo | Start Block |
+|----------|-----------|------|-------------|
+| 🔷 FloorEngine | `0x0351F7cBA83277E891D4a85Da498A7eACD764D58` | Marketplace | 0 |
+| 🟡 ADRIAN Token | `0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea` | ERC20 | 26367738 |
+| 🟣 AdrianLABCore | `0x6e369bf0e4e0c106192d606fb6d85836d684da75` | ERC721 | 31180024 |
+| 🔵 TraitsCore | `0x90546848474fb3c9fda3fdad887969bb244e7e58` | ERC1155 | 32334620 |
+| 🟠 TraitsExtensions | `0x0995c0da1ca071b792e852b6ec531b7cd7d1f8d6` | Custom | 32414246 |
+| 🛒 AdrianShop | `0x4b265927b1521995ce416bba3bed98231d2e946b` | Custom | 33273455 |
+
+---
+
 ## 📊 Tablas Disponibles
 
-### 1. **ERC1155 - AdrianTraitsCore**
+### 1. **ERC20 - ADRIAN Token**
+
+#### `erc20_transfers`
+Transfers del token ERC20 $ADRIAN.
+
+```sql
+-- Ver todos los transfers de un usuario
+SELECT * FROM erc20_transfers
+WHERE contract_address = '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea'
+  AND (from_address = '0x...' OR to_address = '0x...')
+ORDER BY block_number DESC
+LIMIT 100;
+
+-- Ver balance actual de un usuario (suma recibidos - enviados)
+WITH received AS (
+  SELECT SUM(value_wei::numeric) as total
+  FROM erc20_transfers
+  WHERE contract_address = '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea'
+    AND to_address = '0x...'
+),
+sent AS (
+  SELECT SUM(value_wei::numeric) as total
+  FROM erc20_transfers
+  WHERE contract_address = '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea'
+    AND from_address = '0x...'
+)
+SELECT 
+  COALESCE((SELECT total FROM received), 0) - COALESCE((SELECT total FROM sent), 0) as balance;
+```
+
+**Campos:**
+- `contract_address`: Dirección del contrato
+- `from_address`: De dónde se transfirió
+- `to_address`: Hacia dónde se transfirió
+- `value_wei`: Cantidad transferida en wei (string)
+- `tx_hash`: Hash de la transacción
+- `block_number`: Número de bloque
+- `created_at`: Fecha de la transacción (timestamp del bloque)
+
+#### `erc20_approvals`
+Aprobaciones de gasto del token.
+
+```sql
+SELECT * FROM erc20_approvals
+WHERE contract_address = '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea'
+  AND owner = '0x...'
+ORDER BY block_number DESC;
+```
+
+#### `erc20_custom_events`
+Eventos custom del token (TaxFeeUpdated, Staked, etc.).
+
+```sql
+-- Ver todos los stakes de un usuario
+SELECT * FROM erc20_custom_events
+WHERE contract_address = '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea'
+  AND event_name = 'Staked'
+  AND event_data->>'staker' = '0x...'
+ORDER BY block_number DESC;
+
+-- Ver actualizaciones de fees
+SELECT * FROM erc20_custom_events
+WHERE contract_address = '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea'
+  AND event_name IN ('TaxFeeUpdated', 'CreatorFeeUpdated', 'BurnFeeUpdated')
+ORDER BY block_number DESC;
+```
+
+**Eventos disponibles:**
+- `TaxFeeUpdated`: Tax fee actualizado
+- `CreatorFeeUpdated`: Creator fee actualizado
+- `BurnFeeUpdated`: Burn fee actualizado
+- `TaxAddressUpdated`: Dirección de tax actualizada
+- `CreatorAddressUpdated`: Dirección de creator actualizada
+- `FeeExemptionUpdated`: Exención de fees actualizada
+- `Staked`: Tokens staked
+- `WithdrawnStake`: Stake retirado
+- `RewardRateUpdated`: Tasa de recompensa actualizada
+- `GalleryAction`: Acción en la galería
+
+---
+
+### 2. **ERC721 - AdrianLABCore (AdrianZERO)**
+
+#### `erc721_transfers`
+Transfers de NFTs (AdrianZERO).
+
+```sql
+-- Ver todos los transfers de un token específico
+SELECT * FROM erc721_transfers
+WHERE contract_address = '0x6e369bf0e4e0c106192d606fb6d85836d684da75'
+  AND token_id = '123'
+ORDER BY block_number DESC;
+
+-- Ver todos los NFTs de un usuario (último owner conocido)
+SELECT DISTINCT ON (token_id) 
+  token_id, to_address as owner, block_number, tx_hash
+FROM erc721_transfers
+WHERE contract_address = '0x6e369bf0e4e0c106192d606fb6d85836d684da75'
+  AND to_address = '0x...'
+ORDER BY token_id, block_number DESC;
+```
+
+**Campos:**
+- `contract_address`: Dirección del contrato
+- `from_address`: De dónde (0x0000... para mints)
+- `to_address`: Hacia dónde (0x0000... para burns)
+- `token_id`: ID del NFT (string)
+- `tx_hash`: Hash de la transacción
+- `block_number`: Número de bloque
+- `created_at`: Fecha de la transacción (timestamp del bloque)
+
+#### `erc721_approvals`
+Aprobaciones de tokens individuales.
+
+```sql
+SELECT * FROM erc721_approvals
+WHERE contract_address = '0x6e369bf0e4e0c106192d606fb6d85836d684da75'
+  AND owner = '0x...'
+ORDER BY block_number DESC;
+```
+
+#### `erc721_approvals_for_all`
+Aprobaciones para todos los tokens de un owner.
+
+```sql
+SELECT * FROM erc721_approvals_for_all
+WHERE contract_address = '0x6e369bf0e4e0c106192d606fb6d85836d684da75'
+  AND owner = '0x...'
+ORDER BY block_number DESC;
+```
+
+#### `erc721_custom_events`
+Eventos custom de AdrianLABCore (TokenMinted, SkinCreated, etc.).
+
+```sql
+-- Ver todos los mints
+SELECT * FROM erc721_custom_events
+WHERE contract_address = '0x6e369bf0e4e0c106192d606fb6d85836d684da75'
+  AND event_name = 'TokenMinted'
+ORDER BY block_number DESC;
+
+-- Ver skins creados
+SELECT * FROM erc721_custom_events
+WHERE contract_address = '0x6e369bf0e4e0c106192d606fb6d85836d684da75'
+  AND event_name = 'SkinCreated'
+ORDER BY block_number DESC;
+
+-- Ver mutaciones asignadas
+SELECT * FROM erc721_custom_events
+WHERE contract_address = '0x6e369bf0e4e0c106192d606fb6d85836d684da75'
+  AND event_name = 'MutationAssigned'
+  AND event_data->>'tokenId' = '123'
+ORDER BY block_number DESC;
+```
+
+**Eventos disponibles:**
+- `TokenMinted`: NFT minteado
+- `TokenBurnt`: NFT quemado
+- `SkinCreated`: Skin creado
+- `SkinAssigned`: Skin asignado a un token
+- `SkinUpdated`: Skin actualizado
+- `SkinRemoved`: Skin removido
+- `RandomSkinToggled`: Random skin activado/desactivado
+- `MutationAssigned`: Mutación asignada
+- `MutationNameAssigned`: Nombre de mutación asignado
+- `SerumApplied`: Serum aplicado
+- `MutationSkinSet`: Skin de mutación configurado
+- `SpecialSkinApplied`: Skin especial aplicado
+- `BaseURIUpdated`: Base URI actualizada
+- `ExtensionsContractUpdated`: Contrato de extensiones actualizado
+- `TraitsContractUpdated`: Contrato de traits actualizado
+- `PaymentTokenUpdated`: Token de pago actualizado
+- `TreasuryWalletUpdated`: Wallet de treasury actualizada
+- `AdminContractUpdated`: Contrato admin actualizado
+- `FunctionImplementationUpdated`: Implementación de función actualizada
+- `ProceedsWithdrawn`: Proceeds retirados
+- `FirstModification`: Primera modificación de un token
+
+**Ejemplo de `event_data` para TokenMinted:**
+```json
+{
+  "to": "0x...",
+  "tokenId": "123"
+}
+```
+
+**Ejemplo de `event_data` para SkinAssigned:**
+```json
+{
+  "tokenId": "123",
+  "skinId": "456",
+  "name": "Cool Skin"
+}
+```
+
+---
+
+### 3. **FloorEngine - Marketplace**
+
+#### `punk_listings`
+Estado actual de listings por tokenId (vista en tiempo real).
+
+```sql
+-- Ver todos los listings activos
+SELECT * FROM punk_listings
+WHERE is_listed = true
+ORDER BY price_wei ASC;
+
+-- Ver listing de un token específico
+SELECT * FROM punk_listings
+WHERE token_id = 123;
+```
+
+**Campos:**
+- `token_id`: ID del NFT listado
+- `seller`: Dirección del vendedor
+- `price_wei`: Precio en wei (string)
+- `is_contract_owned`: Si el contrato es el owner
+- `is_listed`: Si está actualmente listado
+- `last_event`: Último evento ('Listed' o 'Cancelled')
+- `last_tx_hash`: Hash de la última transacción
+- `last_block_number`: Número del último bloque
+- `updated_at`: Última actualización
+
+#### `listing_events`
+Histórico de eventos Listed y Cancelled.
+
+```sql
+-- Ver historial de listings de un token
+SELECT * FROM listing_events
+WHERE token_id = 123
+ORDER BY block_number DESC;
+
+-- Ver todos los listings activos (último evento fue 'Listed')
+SELECT DISTINCT ON (token_id) *
+FROM listing_events
+WHERE event_type = 'Listed'
+ORDER BY token_id, block_number DESC;
+```
+
+#### `trade_events`
+Histórico de compras (evento Bought).
+
+```sql
+-- Ver todas las compras
+SELECT * FROM trade_events
+ORDER BY block_number DESC
+LIMIT 100;
+
+-- Ver compras de un usuario
+SELECT * FROM trade_events
+WHERE buyer = '0x...'
+ORDER BY block_number DESC;
+
+-- Ver ventas de un usuario
+SELECT * FROM trade_events
+WHERE seller = '0x...'
+ORDER BY block_number DESC;
+```
+
+#### `sweep_events`
+Histórico de floor sweeps automáticos.
+
+```sql
+SELECT * FROM sweep_events
+ORDER BY block_number DESC
+LIMIT 100;
+```
+
+#### `engine_config_events`
+Histórico de cambios en la configuración del FloorEngine.
+
+```sql
+SELECT * FROM engine_config_events
+ORDER BY block_number DESC;
+```
+
+**Eventos disponibles:**
+- `PremiumUpdated`: Premium actualizado
+- `MaxBuyPriceUpdated`: Precio máximo de compra actualizado
+- `CallerRewardModeUpdated`: Modo de recompensa actualizado
+- `CallerRewardBpsUpdated`: Recompensa en BPS actualizada
+- `CallerRewardFixedUpdated`: Recompensa fija actualizada
+- `OwnershipTransferred`: Ownership transferido
+
+---
+
+### 4. **ERC1155 - AdrianTraitsCore**
 
 #### `erc1155_transfers_single`
 Transfers individuales de tokens ERC1155.
@@ -93,7 +393,7 @@ ORDER BY block_number DESC;
 
 ---
 
-### 2. **TraitsExtensions - Gestión de Traits**
+### 5. **TraitsExtensions - Gestión de Traits**
 
 #### `traits_extensions_events`
 Eventos de aplicación de traits e inventario.
@@ -143,7 +443,7 @@ ORDER BY block_number DESC;
 
 ---
 
-### 3. **AdrianShop - Compras y Configuración**
+### 6. **AdrianShop - Compras y Configuración**
 
 #### `shop_events`
 Eventos de compras y configuración de la tienda.
@@ -217,7 +517,91 @@ ORDER BY block_number DESC;
 
 ## 🔍 Queries Útiles para el Frontend
 
-### 1. **Obtener balance de un usuario en TraitsCore**
+### 1. **Obtener balance de $ADRIAN Token de un usuario**
+
+```sql
+WITH received AS (
+  SELECT SUM(value_wei::numeric) as total
+  FROM erc20_transfers
+  WHERE contract_address = '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea'
+    AND to_address = '0x...'
+),
+sent AS (
+  SELECT SUM(value_wei::numeric) as total
+  FROM erc20_transfers
+  WHERE contract_address = '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea'
+    AND from_address = '0x...'
+)
+SELECT 
+  COALESCE((SELECT total FROM received), 0) - COALESCE((SELECT total FROM sent), 0) as balance_wei;
+```
+
+### 2. **Obtener todos los NFTs de un usuario (AdrianZERO)**
+
+```sql
+-- Obtener el último owner conocido de cada token
+WITH latest_transfers AS (
+  SELECT DISTINCT ON (token_id)
+    token_id,
+    to_address as owner,
+    block_number,
+    created_at
+  FROM erc721_transfers
+  WHERE contract_address = '0x6e369bf0e4e0c106192d606fb6d85836d684da75'
+  ORDER BY token_id, block_number DESC
+)
+SELECT token_id, owner, created_at
+FROM latest_transfers
+WHERE owner = '0x...'
+ORDER BY token_id;
+```
+
+### 3. **Obtener historial completo de un NFT**
+
+```sql
+SELECT 
+  from_address,
+  to_address,
+  block_number,
+  created_at,
+  tx_hash
+FROM erc721_transfers
+WHERE contract_address = '0x6e369bf0e4e0c106192d606fb6d85836d684da75'
+  AND token_id = '123'
+ORDER BY block_number ASC;
+```
+
+### 4. **Obtener listings activos del marketplace**
+
+```sql
+SELECT 
+  token_id,
+  seller,
+  price_wei,
+  is_contract_owned,
+  last_tx_hash,
+  updated_at
+FROM punk_listings
+WHERE is_listed = true
+ORDER BY price_wei ASC;
+```
+
+### 5. **Obtener historial de trades de un token**
+
+```sql
+SELECT 
+  buyer,
+  seller,
+  price_wei,
+  block_number,
+  created_at,
+  tx_hash
+FROM trade_events
+WHERE token_id = 123
+ORDER BY block_number DESC;
+```
+
+### 6. **Obtener balance de un usuario en TraitsCore**
 
 ```sql
 -- Sumar todos los transfers recibidos menos los enviados
@@ -243,7 +627,7 @@ FULL OUTER JOIN sent s ON r.token_id = s.token_id
 WHERE COALESCE(r.total, 0) - COALESCE(s.total, 0) > 0;
 ```
 
-### 2. **Obtener traits aplicados a un token**
+### 7. **Obtener traits aplicados a un token**
 
 ```sql
 SELECT 
@@ -258,7 +642,7 @@ WHERE contract_address = '0x0995c0da1ca071b792e852b6ec531b7cd7d1f8d6'
 ORDER BY block_number DESC;
 ```
 
-### 3. **Obtener historial de compras de un usuario**
+### 8. **Obtener historial de compras de un usuario**
 
 ```sql
 SELECT 
@@ -278,7 +662,7 @@ WHERE contract_address = '0x4b265927b1521995ce416bba3bed98231d2e946b'
 ORDER BY block_number DESC;
 ```
 
-### 4. **Obtener estadísticas de ventas de un asset**
+### 9. **Obtener estadísticas de ventas de un asset**
 
 ```sql
 SELECT 
@@ -292,7 +676,7 @@ WHERE contract_address = '0x4b265927b1521995ce416bba3bed98231d2e946b'
   AND event_data->>'assetId' = '123';
 ```
 
-### 5. **Obtener inventario de un token**
+### 10. **Obtener inventario de un token**
 
 ```sql
 -- Assets añadidos menos removidos
@@ -359,6 +743,73 @@ async function getTokenTraits(tokenId: string) {
     .eq('event_name', 'TraitApplied')
     .eq('event_data->tokenId', tokenId)
     .order('block_number', { ascending: false });
+
+  if (error) throw error;
+  return data;
+}
+
+// Obtener balance de $ADRIAN Token
+async function getADRIANBalance(userAddress: string) {
+  const { data: received } = await supabase
+    .from('erc20_transfers')
+    .select('value_wei')
+    .eq('contract_address', '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea')
+    .eq('to_address', userAddress.toLowerCase());
+
+  const { data: sent } = await supabase
+    .from('erc20_transfers')
+    .select('value_wei')
+    .eq('contract_address', '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea')
+    .eq('from_address', userAddress.toLowerCase());
+
+  const receivedTotal = received?.reduce((sum, r) => sum + BigInt(r.value_wei), 0n) || 0n;
+  const sentTotal = sent?.reduce((sum, s) => sum + BigInt(s.value_wei), 0n) || 0n;
+
+  return receivedTotal - sentTotal;
+}
+
+// Obtener NFTs de un usuario (AdrianZERO)
+async function getUserNFTs(userAddress: string) {
+  // Obtener todos los transfers donde el usuario recibió tokens
+  const { data: transfers } = await supabase
+    .from('erc721_transfers')
+    .select('token_id, block_number, created_at')
+    .eq('contract_address', '0x6e369bf0e4e0c106192d606fb6d85836d684da75')
+    .eq('to_address', userAddress.toLowerCase())
+    .order('block_number', { ascending: false });
+
+  // Filtrar solo los tokens que el usuario aún posee
+  // (no han sido transferidos después)
+  const ownedTokens = new Set<string>();
+  if (transfers) {
+    for (const transfer of transfers) {
+      if (!ownedTokens.has(transfer.token_id)) {
+        // Verificar si el token fue transferido después
+        const { data: laterTransfers } = await supabase
+          .from('erc721_transfers')
+          .select('from_address')
+          .eq('contract_address', '0x6e369bf0e4e0c106192d606fb6d85836d684da75')
+          .eq('token_id', transfer.token_id)
+          .gt('block_number', transfer.block_number)
+          .limit(1);
+
+        if (!laterTransfers || laterTransfers.length === 0) {
+          ownedTokens.add(transfer.token_id);
+        }
+      }
+    }
+  }
+
+  return Array.from(ownedTokens);
+}
+
+// Obtener listings activos
+async function getActiveListings() {
+  const { data, error } = await supabase
+    .from('punk_listings')
+    .select('*')
+    .eq('is_listed', true)
+    .order('price_wei', { ascending: true });
 
   if (error) throw error;
   return data;
@@ -453,11 +904,26 @@ Todos los eventos custom usan JSONB para flexibilidad. Aquí están las estructu
 
 ## 🔄 Sincronización en Tiempo Real
 
-El bot sincroniza eventos en tiempo real. Para verificar el estado de sincronización:
+El sistema usa una estrategia de sincronización intercalada que prioriza datos en tiempo real:
+
+- **Forward (Tiempo Real)**: Sincroniza desde el último bloque procesado hacia el bloque actual
+- **Backward (Histórico)**: Sincroniza desde el bloque actual hacia atrás hasta el startBlock
+
+Esto garantiza que los datos más recientes estén disponibles lo antes posible, mientras se completa el histórico en segundo plano.
+
+Para verificar el estado de sincronización:
 
 ```sql
-SELECT * FROM sync_state
+SELECT 
+  contract_address,
+  last_synced_block as forward_progress,
+  last_historical_block as backward_progress,
+  updated_at
+FROM sync_state
 WHERE contract_address IN (
+  '0x0351F7cBA83277E891D4a85Da498A7eACD764D58', -- FloorEngine
+  '0x7E99075Ce287F1cF8cBCAaa6A1C7894e404fD7Ea', -- ADRIAN Token
+  '0x6e369bf0e4e0c106192d606fb6d85836d684da75', -- AdrianLABCore
   '0x90546848474fb3c9fda3fdad887969bb244e7e58', -- TraitsCore
   '0x0995c0da1ca071b792e852b6ec531b7cd7d1f8d6', -- TraitsExtensions
   '0x4b265927b1521995ce416bba3bed98231d2e946b'  -- Shop
@@ -474,6 +940,8 @@ ORDER BY last_synced_block DESC;
 3. **Todos los eventos** tienen `UNIQUE(tx_hash, log_index)` para prevenir duplicados
 4. **Los índices GIN** en campos JSONB permiten búsquedas eficientes dentro del JSON
 5. **El sistema procesa bloques en orden**, garantizando que los eventos estén en orden cronológico
+6. **Las fechas (`created_at`)** reflejan el timestamp real del bloque de la transacción, no cuando se indexó
+7. **Sincronización intercalada**: Los datos más recientes tienen prioridad sobre el histórico
 
 ---
 
