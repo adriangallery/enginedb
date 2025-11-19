@@ -36,7 +36,17 @@ import { processTraitsExtensionsEvent } from './processors/traits-extensions-pro
 import { processShopEvent } from './processors/shop-processor.js';
 
 // Configuración
-const BLOCKS_PER_BATCH = 10n; // Bloques por batch
+const BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
+  ? BigInt(process.env.BLOCKS_PER_BATCH)
+  : 10n; // Bloques por batch
+
+// Número de requests paralelos para procesar múltiples rangos simultáneamente
+// Para histórico: usar valores más altos (10-20) para acelerar
+// Para tiempo real: 3-5 es suficiente
+const PARALLEL_REQUESTS = process.env.PARALLEL_REQUESTS
+  ? parseInt(process.env.PARALLEL_REQUESTS)
+  : 10; // Default: 10 requests paralelos (aumentado para acelerar histórico)
+
 const SAVE_PROGRESS_INTERVAL = 50; // Guardar progreso cada N batches
 
 /**
@@ -240,6 +250,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   console.log('');
   console.log(`📦 Modo: Intercalado (Forward ↔ Backward)`);
   console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
+  console.log(`🚀 Paralelismo: ${PARALLEL_REQUESTS} requests simultáneos (${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo)`);
   console.log('');
 
   // 3. Procesar en modo intercalado
@@ -255,11 +266,11 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     let batchEvents = 0;
 
     if (isForwardMode && hasForwardWork) {
-      // Modo FORWARD: sincronizar hacia adelante
+      // Modo FORWARD: sincronizar hacia adelante con paralelismo
       const activeStates = contractStates.filter((s) => s.hasMoreForward);
       
       if (activeStates.length > 0) {
-        // Determinar rango a procesar
+        // Determinar el bloque inicial más bajo
         const minForwardBlock = activeStates.reduce(
           (min, s) => {
             const forwardStart = s.lastSyncedBlock + 1n;
@@ -268,17 +279,54 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           currentBlock + 1n
         );
 
-        const fromBlock = minForwardBlock;
-        const toBlock = fromBlock + BLOCKS_PER_BATCH - 1n > currentBlock
-          ? currentBlock
-          : fromBlock + BLOCKS_PER_BATCH - 1n;
+        // Calcular cuántos batches podemos procesar en paralelo
+        const maxBlockToProcess = activeStates.reduce(
+          (max, s) => {
+            const forwardStart = s.lastSyncedBlock + 1n;
+            const maxPossible = forwardStart + BigInt(PARALLEL_REQUESTS) * BLOCKS_PER_BATCH - 1n;
+            return maxPossible > max ? maxPossible : max;
+          },
+          minForwardBlock
+        );
 
-        if (fromBlock <= currentBlock) {
+        const effectiveEndBlock = maxBlockToProcess > currentBlock ? currentBlock : maxBlockToProcess;
+        const totalBlocksToProcess = effectiveEndBlock - minForwardBlock + 1n;
+        const batchesToProcess = Number(
+          totalBlocksToProcess / BLOCKS_PER_BATCH + 
+          (totalBlocksToProcess % BLOCKS_PER_BATCH > 0n ? 1n : 0n)
+        );
+        const parallelBatches = Math.min(batchesToProcess, PARALLEL_REQUESTS);
+
+        if (minForwardBlock <= currentBlock && parallelBatches > 0) {
           const activeAddresses = activeStates.map((s) => s.address);
-          const logs = await processBlockRange(client, activeAddresses, fromBlock, toBlock);
+          
+          // Crear múltiples requests paralelos
+          const parallelPromises: Promise<Log[]>[] = [];
+          const blockRanges: { from: bigint; to: bigint }[] = [];
+
+          for (let i = 0; i < parallelBatches; i++) {
+            const fromBlock = minForwardBlock + BigInt(i) * BLOCKS_PER_BATCH;
+            const toBlock = fromBlock + BLOCKS_PER_BATCH - 1n > currentBlock
+              ? currentBlock
+              : fromBlock + BLOCKS_PER_BATCH - 1n;
+
+            if (fromBlock <= currentBlock) {
+              blockRanges.push({ from: fromBlock, to: toBlock });
+              parallelPromises.push(
+                processBlockRange(client, activeAddresses, fromBlock, toBlock)
+              );
+            }
+          }
+
+          // Ejecutar todos los requests en paralelo
+          const parallelResults = await Promise.all(parallelPromises);
+          const allLogs: Log[] = [];
+          for (const logs of parallelResults) {
+            allLogs.push(...logs);
+          }
 
           // Procesar logs
-          for (const log of logs) {
+          for (const log of allLogs) {
             const contract = CONTRACT_REGISTRY.find(
               (c) => c.address.toLowerCase() === log.address.toLowerCase()
             );
@@ -303,22 +351,28 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           }
 
           // Actualizar estados forward
+          const lastProcessedBlock = blockRanges.length > 0 
+            ? blockRanges[blockRanges.length - 1].to 
+            : minForwardBlock - 1n;
+          
           for (const state of activeStates) {
-            if (state.lastSyncedBlock < toBlock) {
-              state.lastSyncedBlock = toBlock;
+            if (state.lastSyncedBlock < lastProcessedBlock) {
+              state.lastSyncedBlock = lastProcessedBlock;
               state.hasMoreForward = state.lastSyncedBlock < currentBlock;
             }
           }
 
-          console.log(`  ✅ Forward: ${fromBlock} → ${toBlock} (${logs.length} eventos)`);
+          const firstBlock = blockRanges[0]?.from || minForwardBlock;
+          const lastBlock = lastProcessedBlock;
+          console.log(`  ✅ Forward: ${firstBlock} → ${lastBlock} (${parallelBatches} batches, ${allLogs.length} eventos)`);
         }
       }
     } else if (!isForwardMode && hasBackwardWork) {
-      // Modo BACKWARD: sincronizar hacia atrás
+      // Modo BACKWARD: sincronizar hacia atrás con paralelismo
       const activeStates = contractStates.filter((s) => s.hasMoreBackward);
       
       if (activeStates.length > 0) {
-        // Determinar rango a procesar (hacia atrás)
+        // Determinar el bloque más alto a procesar (hacia atrás)
         const maxBackwardBlock = activeStates.reduce(
           (max, s) => {
             if (s.lastHistoricalBlock === null) return max;
@@ -333,49 +387,87 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           maxBackwardBlock + 1n
         );
 
-        const toBlock = maxBackwardBlock;
-        const fromBlock = toBlock - BLOCKS_PER_BATCH + 1n < minStartBlock
-          ? minStartBlock
-          : toBlock - BLOCKS_PER_BATCH + 1n;
+        if (maxBackwardBlock >= minStartBlock) {
+          // Calcular cuántos batches podemos procesar en paralelo hacia atrás
+          const totalBlocksToProcess = maxBackwardBlock - minStartBlock + 1n;
+          const batchesToProcess = Number(
+            totalBlocksToProcess / BLOCKS_PER_BATCH + 
+            (totalBlocksToProcess % BLOCKS_PER_BATCH > 0n ? 1n : 0n)
+          );
+          const parallelBatches = Math.min(batchesToProcess, PARALLEL_REQUESTS);
 
-        if (fromBlock <= toBlock && toBlock >= minStartBlock) {
-          const activeAddresses = activeStates.map((s) => s.address);
-          const logs = await processBlockRange(client, activeAddresses, fromBlock, toBlock);
+          if (parallelBatches > 0) {
+            const activeAddresses = activeStates.map((s) => s.address);
+            
+            // Crear múltiples requests paralelos (hacia atrás)
+            const parallelPromises: Promise<Log[]>[] = [];
+            const blockRanges: { from: bigint; to: bigint }[] = [];
 
-          // Procesar logs
-          for (const log of logs) {
-            const contract = CONTRACT_REGISTRY.find(
-              (c) => c.address.toLowerCase() === log.address.toLowerCase()
-            );
+            for (let i = 0; i < parallelBatches; i++) {
+              // Procesar desde el más alto hacia abajo
+              const toBlock = maxBackwardBlock - BigInt(i) * BLOCKS_PER_BATCH;
+              const fromBlock = toBlock - BLOCKS_PER_BATCH + 1n < minStartBlock
+                ? minStartBlock
+                : toBlock - BLOCKS_PER_BATCH + 1n;
 
-            if (contract) {
-              try {
-                const event = contract.decoder(log);
-                if (event) {
-                  await contract.processor(event, contract.address);
-                  const state = contractStates.find((s) => s.address === contract.address)!;
-                  state.eventsProcessed++;
-                  batchEvents++;
-                  totalEventsProcessed++;
-                }
-              } catch (error) {
-                console.error(
-                  `${contract.color} [${contract.name}] Error procesando evento:`,
-                  error
+              if (fromBlock <= toBlock && toBlock >= minStartBlock) {
+                blockRanges.push({ from: fromBlock, to: toBlock });
+                parallelPromises.push(
+                  processBlockRange(client, activeAddresses, fromBlock, toBlock)
                 );
               }
             }
-          }
 
-          // Actualizar estados backward
-          for (const state of activeStates) {
-            if (state.lastHistoricalBlock !== null && state.lastHistoricalBlock > fromBlock) {
-              state.lastHistoricalBlock = fromBlock;
-              state.hasMoreBackward = state.lastHistoricalBlock > state.startBlock;
+            // Ejecutar todos los requests en paralelo
+            const parallelResults = await Promise.all(parallelPromises);
+            const allLogs: Log[] = [];
+            for (const logs of parallelResults) {
+              allLogs.push(...logs);
             }
-          }
 
-          console.log(`  ✅ Backward: ${fromBlock} → ${toBlock} (${logs.length} eventos)`);
+            // Procesar logs
+            for (const log of allLogs) {
+              const contract = CONTRACT_REGISTRY.find(
+                (c) => c.address.toLowerCase() === log.address.toLowerCase()
+              );
+
+              if (contract) {
+                try {
+                  const event = contract.decoder(log);
+                  if (event) {
+                    await contract.processor(event, contract.address);
+                    const state = contractStates.find((s) => s.address === contract.address)!;
+                    state.eventsProcessed++;
+                    batchEvents++;
+                    totalEventsProcessed++;
+                  }
+                } catch (error) {
+                  console.error(
+                    `${contract.color} [${contract.name}] Error procesando evento:`,
+                    error
+                  );
+                }
+              }
+            }
+
+            // Actualizar estados backward (usar el bloque más bajo procesado)
+            const firstProcessedBlock = blockRanges.length > 0 
+              ? blockRanges[blockRanges.length - 1].from 
+              : maxBackwardBlock + 1n;
+            
+            for (const state of activeStates) {
+              if (state.lastHistoricalBlock !== null && state.lastHistoricalBlock > firstProcessedBlock) {
+                state.lastHistoricalBlock = firstProcessedBlock;
+                state.hasMoreBackward = state.lastHistoricalBlock > state.startBlock;
+              }
+            }
+
+            const firstBlock = blockRanges[0]?.from || maxBackwardBlock;
+            const lastBlock = blockRanges.length > 0 
+              ? blockRanges[blockRanges.length - 1].to 
+              : maxBackwardBlock;
+            console.log(`  ✅ Backward: ${firstBlock} → ${lastBlock} (${parallelBatches} batches, ${allLogs.length} eventos)`);
+          }
         }
       }
     }
