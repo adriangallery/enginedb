@@ -4,9 +4,8 @@
  * Mucho más eficiente que leer cada contrato por separado
  */
 
-import { createViemClient } from './viem-client.js';
+import { createViemClient, decodeLog as decodeFloorEngineLog, processEvent as processFloorEngineEvent } from './listener.js';
 import { getLastSyncedBlockByContract, updateLastSyncedBlockByContract } from './supabase/client.js';
-import { processFloorEngineEvent } from './processors/floor-engine-processor.js';
 import { processERC20Event } from './processors/erc20-processor.js';
 import { processERC721Event } from './processors/erc721-processor.js';
 import type { Log } from 'viem';
@@ -17,7 +16,6 @@ import { ADRIAN_TOKEN_CONFIG } from './contracts/config/adrian-token.js';
 import { ADRIAN_LAB_CORE_CONFIG } from './contracts/config/adrian-lab-core.js';
 
 // Decoders de eventos
-import { decodeLog as decodeFloorEngineLog } from './listener.js';
 import { decodeLog as decodeERC20Log } from './listeners/erc20/adrian-token-listener.js';
 import { decodeLog as decodeERC721Log } from './listeners/erc721/adrian-lab-core-listener.js';
 
@@ -157,10 +155,6 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     (min, state) => (state.startBlock < min ? state.startBlock : min),
     currentBlock
   );
-  const maxStartBlock = contractStates.reduce(
-    (max, state) => (state.startBlock > max ? state.startBlock : max),
-    0n
-  );
 
   console.log('');
   console.log(`📍 Bloque actual: ${currentBlock}`);
@@ -182,7 +176,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   // 3. Calcular batches a procesar
   const blocksToProcess = currentBlock - minStartBlock + 1n;
   const totalBatches = Number(
-    blocksToProcess / BLOCKS_PER_BATCH +
+    (blocksToProcess / BLOCKS_PER_BATCH) +
       (blocksToProcess % BLOCKS_PER_BATCH > 0n ? 1n : 0n)
   );
   const batchesToProcess = maxBatches ? Math.min(totalBatches, maxBatches) : totalBatches;
@@ -239,7 +233,12 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
         try {
           const event = contract.decoder(log);
           if (event) {
-            await contract.processor(event, contract.address);
+            // processFloorEngineEvent solo toma el event, los demás toman (event, address)
+            if (contract.name === 'FloorEngine') {
+              await contract.processor(event);
+            } else {
+              await contract.processor(event, contract.address);
+            }
             
             const state = contractStates.find(
               (s) => s.address === contract.address
