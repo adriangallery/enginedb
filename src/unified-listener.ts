@@ -32,7 +32,7 @@ interface ContractDefinition {
   address: string;
   startBlock: bigint;
   decoder: (log: Log) => any;
-  processor: (event: any, address?: string) => Promise<void>;
+  processor: (event: any, address: string) => Promise<void>;
   color: string; // Para logs coloreados
 }
 
