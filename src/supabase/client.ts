@@ -43,6 +43,7 @@ export interface Database {
   sync_state: {
     id: number;
     last_synced_block: number;
+    last_historical_block: number | null;
     updated_at: string;
   };
   punk_listings: {
@@ -222,6 +223,91 @@ export async function updateLastSyncedBlockByContract(
     if (updateError) {
       console.error(
         `Error al actualizar último bloque sincronizado para ${contractAddress}:`,
+        updateError
+      );
+      throw updateError;
+    }
+  }
+}
+
+/**
+ * Obtener el último bloque histórico procesado por contrato
+ * Usado para sincronización hacia atrás
+ */
+export async function getLastHistoricalBlockByContract(
+  contractAddress: string
+): Promise<number | null> {
+  const client = getSupabaseClient();
+
+  const { data, error } = await client
+    .from('sync_state')
+    .select('last_historical_block')
+    .eq('contract_address', contractAddress.toLowerCase())
+    .single();
+
+  if (error) {
+    // Si no existe registro, retornar null
+    if (error.code === 'PGRST116') {
+      return null;
+    }
+    console.error(
+      `Error al obtener último bloque histórico para ${contractAddress}:`,
+      error
+    );
+    throw error;
+  }
+
+  return data?.last_historical_block ?? null;
+}
+
+/**
+ * Actualizar el último bloque histórico procesado por contrato
+ * Usado para sincronización hacia atrás
+ */
+export async function updateLastHistoricalBlockByContract(
+  contractAddress: string,
+  blockNumber: number
+): Promise<void> {
+  const client = getSupabaseClient();
+
+  // Intentar actualizar registro existente
+  const { error: selectError } = await client
+    .from('sync_state')
+    .select('id')
+    .eq('contract_address', contractAddress.toLowerCase())
+    .single();
+
+  if (selectError && selectError.code === 'PGRST116') {
+    // No existe registro, crear uno nuevo
+    const { error: insertError } = await client.from('sync_state').insert({
+      contract_address: contractAddress.toLowerCase(),
+      last_synced_block: 0,
+      last_historical_block: blockNumber,
+    });
+
+    if (insertError) {
+      console.error(
+        `Error al crear registro de sync_state para ${contractAddress}:`,
+        insertError
+      );
+      throw insertError;
+    }
+  } else if (selectError) {
+    console.error(
+      `Error al buscar registro de sync_state para ${contractAddress}:`,
+      selectError
+    );
+    throw selectError;
+  } else {
+    // Actualizar registro existente
+    const { error: updateError } = await client
+      .from('sync_state')
+      .update({ last_historical_block: blockNumber })
+      .eq('contract_address', contractAddress.toLowerCase());
+
+    if (updateError) {
+      console.error(
+        `Error al actualizar último bloque histórico para ${contractAddress}:`,
         updateError
       );
       throw updateError;

@@ -22,6 +22,17 @@ BEGIN
   END IF;
 END $$;
 
+-- Agregar columna last_historical_block si no existe (para tracking de sincronización histórica hacia atrás)
+DO $$ 
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'sync_state' AND column_name = 'last_historical_block'
+  ) THEN
+    ALTER TABLE sync_state ADD COLUMN last_historical_block BIGINT;
+  END IF;
+END $$;
+
 -- Crear índice único parcial si no existe
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_state_contract_address 
 ON sync_state(contract_address) 

@@ -5,7 +5,12 @@
  */
 
 import { createViemClient, decodeLog as decodeFloorEngineLog, processEvent as processFloorEngineEvent } from './listener.js';
-import { getLastSyncedBlockByContract, updateLastSyncedBlockByContract } from './supabase/client.js';
+import { 
+  getLastSyncedBlockByContract, 
+  updateLastSyncedBlockByContract,
+  getLastHistoricalBlockByContract,
+  updateLastHistoricalBlockByContract
+} from './supabase/client.js';
 import { processERC20Event } from './processors/erc20-processor.js';
 import { processERC721Event } from './processors/erc721-processor.js';
 import type { Log } from 'viem';
@@ -109,9 +114,11 @@ interface ContractSyncState {
   name: string;
   address: string;
   lastSyncedBlock: bigint;
+  lastHistoricalBlock: bigint | null;
   startBlock: bigint;
   eventsProcessed: number;
-  hasMore: boolean;
+  hasMoreForward: boolean;
+  hasMoreBackward: boolean;
 }
 
 /**
@@ -145,8 +152,8 @@ async function processBlockRange(
 }
 
 /**
- * Sincronización unificada de todos los contratos
- * Lee cada bloque UNA SOLA VEZ y procesa eventos de todos los contratos
+ * Sincronización unificada de todos los contratos con intercalación
+ * Alterna entre sincronización forward (tiempo real) y backward (histórico)
  */
 export async function syncAllContracts(maxBatches?: number): Promise<{
   contractStates: ContractSyncState[];
@@ -157,20 +164,33 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   const startTime = Date.now();
   const client = createViemClient();
 
-  console.log('🌐 Sincronización Unificada Multi-Contrato');
+  console.log('🌐 Sincronización Unificada Multi-Contrato (Intercalada)');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   // 1. Obtener estado de sincronización de cada contrato
   const contractStates: ContractSyncState[] = [];
+  const currentBlock = await client.getBlockNumber();
   
   for (const contract of CONTRACT_REGISTRY) {
     let lastSyncedBlock = BigInt(
       await getLastSyncedBlockByContract(contract.address)
     );
     
-    // Si no tiene registro y el startBlock es mayor que 0, inicializar con startBlock - 1
-    if (lastSyncedBlock === 0n && contract.startBlock > 0n) {
-      const initialBlock = contract.startBlock - 1n;
+    let lastHistoricalBlock = await getLastHistoricalBlockByContract(contract.address);
+    
+    // Inicializar lastHistoricalBlock con el bloque actual si es null
+    if (lastHistoricalBlock === null) {
+      lastHistoricalBlock = Number(currentBlock);
+      await updateLastHistoricalBlockByContract(
+        contract.address,
+        lastHistoricalBlock
+      );
+    }
+    
+    // Si no tiene registro forward, inicializar con bloque actual - 1 para empezar desde ahora
+    // (después de limpiar datos, queremos priorizar tiempo real)
+    if (lastSyncedBlock === 0n) {
+      const initialBlock = currentBlock - 1n;
       await updateLastSyncedBlockByContract(
         contract.address,
         Number(initialBlock)
@@ -178,39 +198,38 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
       lastSyncedBlock = initialBlock;
     }
     
-    const startBlock =
-      lastSyncedBlock === 0n ? contract.startBlock : lastSyncedBlock + 1n;
+    const forwardStartBlock = lastSyncedBlock + 1n;
+    
+    const backwardStartBlock = BigInt(lastHistoricalBlock) - 1n;
 
     contractStates.push({
       name: contract.name,
       address: contract.address,
       lastSyncedBlock,
-      startBlock,
+      lastHistoricalBlock: BigInt(lastHistoricalBlock),
+      startBlock: contract.startBlock,
       eventsProcessed: 0,
-      hasMore: false,
+      hasMoreForward: forwardStartBlock <= currentBlock,
+      hasMoreBackward: backwardStartBlock >= contract.startBlock,
     });
 
     console.log(
-      `${contract.color} [${contract.name}] Último bloque: ${lastSyncedBlock}`
+      `${contract.color} [${contract.name}] Forward: ${lastSyncedBlock} → ${currentBlock} | Backward: ${backwardStartBlock} → ${contract.startBlock}`
     );
   }
 
-  // 2. Determinar rango global de bloques a procesar
-  const currentBlock = await client.getBlockNumber();
-  const minStartBlock = contractStates.reduce(
-    (min, state) => (state.startBlock < min ? state.startBlock : min),
-    currentBlock
-  );
-
   console.log('');
   console.log(`📍 Bloque actual: ${currentBlock}`);
-  console.log(`📊 Rango global: ${minStartBlock} → ${currentBlock}`);
   console.log(
     `🔄 Contratos activos: ${CONTRACT_REGISTRY.map((c) => c.name).join(', ')}`
   );
 
-  if (minStartBlock > currentBlock) {
-    console.log('✅ Todos los contratos están sincronizados');
+  // 2. Verificar si hay trabajo pendiente
+  const hasForwardWork = contractStates.some((s) => s.hasMoreForward);
+  const hasBackwardWork = contractStates.some((s) => s.hasMoreBackward);
+
+  if (!hasForwardWork && !hasBackwardWork) {
+    console.log('✅ Todos los contratos están completamente sincronizados');
     return {
       contractStates,
       totalEventsProcessed: 0,
@@ -219,137 +238,186 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     };
   }
 
-  // 3. Calcular batches a procesar
-  const blocksToProcess = currentBlock - minStartBlock + 1n;
-  const totalBatches = Number(
-    (blocksToProcess / BLOCKS_PER_BATCH) +
-      (blocksToProcess % BLOCKS_PER_BATCH > 0n ? 1n : 0n)
-  );
-  const batchesToProcess = maxBatches ? Math.min(totalBatches, maxBatches) : totalBatches;
-
   console.log('');
-  console.log(
-    `📦 Procesando ${batchesToProcess}/${totalBatches} batches (${BLOCKS_PER_BATCH} bloques/batch)`
-  );
-  console.log(
-    `⚡ Usando ${PARALLEL_REQUESTS} requests paralelos = ${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques/ciclo`
-  );
+  console.log(`📦 Modo: Intercalado (Forward ↔ Backward)`);
+  console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
   console.log('');
 
-  // 4. Procesar bloques en batches paralelos
-  let processedBatches = 0;
+  // 3. Procesar en modo intercalado
   let totalEventsProcessed = 0;
+  let batchCounter = 0;
+  let isForwardMode = true; // Empezar con forward (tiempo real tiene prioridad)
 
-  for (let i = 0; i < batchesToProcess; i += PARALLEL_REQUESTS) {
-    // Crear batch de requests paralelos
-    const batchPromises: Promise<Log[]>[] = [];
+  // Procesar batches intercalados
+  while ((hasForwardWork || hasBackwardWork) && (!maxBatches || batchCounter < maxBatches)) {
+    const mode = isForwardMode ? 'FORWARD' : 'BACKWARD';
+    console.log(`\n🔄 Batch ${batchCounter + 1} - Modo: ${mode}`);
 
-    for (let j = 0; j < PARALLEL_REQUESTS && i + j < batchesToProcess; j++) {
-      const batchIndex = i + j;
-      const fromBlock = minStartBlock + BigInt(batchIndex) * BLOCKS_PER_BATCH;
-      const toBlock =
-        fromBlock + BLOCKS_PER_BATCH - 1n > currentBlock
+    let batchEvents = 0;
+    let processedBlocks = 0n;
+
+    if (isForwardMode && hasForwardWork) {
+      // Modo FORWARD: sincronizar hacia adelante
+      const activeStates = contractStates.filter((s) => s.hasMoreForward);
+      
+      if (activeStates.length > 0) {
+        // Determinar rango a procesar
+        const minForwardBlock = activeStates.reduce(
+          (min, s) => {
+            const forwardStart = s.lastSyncedBlock + 1n;
+            return forwardStart < min ? forwardStart : min;
+          },
+          currentBlock + 1n
+        );
+
+        const fromBlock = minForwardBlock;
+        const toBlock = fromBlock + BLOCKS_PER_BATCH - 1n > currentBlock
           ? currentBlock
           : fromBlock + BLOCKS_PER_BATCH - 1n;
 
-      // Filtrar solo contratos que necesitan procesar este rango
-      const activeAddresses = CONTRACT_REGISTRY.filter((contract) => {
-        const state = contractStates.find((s) => s.address === contract.address)!;
-        return state.startBlock <= toBlock;
-      }).map((c) => c.address);
+        if (fromBlock <= currentBlock) {
+          const activeAddresses = activeStates.map((s) => s.address);
+          const logs = await processBlockRange(client, activeAddresses, fromBlock, toBlock);
 
-      if (activeAddresses.length > 0) {
-        batchPromises.push(
-          processBlockRange(client, activeAddresses, fromBlock, toBlock)
+          // Procesar logs
+          for (const log of logs) {
+            const contract = CONTRACT_REGISTRY.find(
+              (c) => c.address.toLowerCase() === log.address.toLowerCase()
+            );
+
+            if (contract) {
+              try {
+                const event = contract.decoder(log);
+                if (event) {
+                  await contract.processor(event, contract.address);
+                  const state = contractStates.find((s) => s.address === contract.address)!;
+                  state.eventsProcessed++;
+                  batchEvents++;
+                  totalEventsProcessed++;
+                }
+              } catch (error) {
+                console.error(
+                  `${contract.color} [${contract.name}] Error procesando evento:`,
+                  error
+                );
+              }
+            }
+          }
+
+          // Actualizar estados forward
+          for (const state of activeStates) {
+            if (state.lastSyncedBlock < toBlock) {
+              state.lastSyncedBlock = toBlock;
+              state.hasMoreForward = state.lastSyncedBlock < currentBlock;
+            }
+          }
+
+          processedBlocks = toBlock - fromBlock + 1n;
+          console.log(`  ✅ Forward: ${fromBlock} → ${toBlock} (${logs.length} eventos)`);
+        }
+      }
+    } else if (!isForwardMode && hasBackwardWork) {
+      // Modo BACKWARD: sincronizar hacia atrás
+      const activeStates = contractStates.filter((s) => s.hasMoreBackward);
+      
+      if (activeStates.length > 0) {
+        // Determinar rango a procesar (hacia atrás)
+        const maxBackwardBlock = activeStates.reduce(
+          (max, s) => {
+            const backwardStart = s.lastHistoricalBlock - 1n;
+            return backwardStart > max ? backwardStart : max;
+          },
+          0n
+        );
+
+        const minStartBlock = activeStates.reduce(
+          (min, s) => s.startBlock < min ? s.startBlock : min,
+          maxBackwardBlock + 1n
+        );
+
+        const toBlock = maxBackwardBlock;
+        const fromBlock = toBlock - BLOCKS_PER_BATCH + 1n < minStartBlock
+          ? minStartBlock
+          : toBlock - BLOCKS_PER_BATCH + 1n;
+
+        if (fromBlock <= toBlock && toBlock >= minStartBlock) {
+          const activeAddresses = activeStates.map((s) => s.address);
+          const logs = await processBlockRange(client, activeAddresses, fromBlock, toBlock);
+
+          // Procesar logs
+          for (const log of logs) {
+            const contract = CONTRACT_REGISTRY.find(
+              (c) => c.address.toLowerCase() === log.address.toLowerCase()
+            );
+
+            if (contract) {
+              try {
+                const event = contract.decoder(log);
+                if (event) {
+                  await contract.processor(event, contract.address);
+                  const state = contractStates.find((s) => s.address === contract.address)!;
+                  state.eventsProcessed++;
+                  batchEvents++;
+                  totalEventsProcessed++;
+                }
+              } catch (error) {
+                console.error(
+                  `${contract.color} [${contract.name}] Error procesando evento:`,
+                  error
+                );
+              }
+            }
+          }
+
+          // Actualizar estados backward
+          for (const state of activeStates) {
+            if (state.lastHistoricalBlock > fromBlock) {
+              state.lastHistoricalBlock = fromBlock;
+              state.hasMoreBackward = state.lastHistoricalBlock > state.startBlock;
+            }
+          }
+
+          processedBlocks = toBlock - fromBlock + 1n;
+          console.log(`  ✅ Backward: ${fromBlock} → ${toBlock} (${logs.length} eventos)`);
+        }
+      }
+    }
+
+    // Guardar progreso periódicamente
+    if (batchCounter % SAVE_PROGRESS_INTERVAL === 0 || batchEvents > 0) {
+      for (const state of contractStates) {
+        await updateLastSyncedBlockByContract(
+          state.address,
+          Number(state.lastSyncedBlock)
+        );
+        await updateLastHistoricalBlockByContract(
+          state.address,
+          Number(state.lastHistoricalBlock)
         );
       }
-    }
-
-    // Ejecutar batch en paralelo
-    const batchResults = await Promise.all(batchPromises);
-    const allLogs = batchResults.flat();
-
-    // Procesar cada log según su contrato
-    for (const log of allLogs) {
-      const contract = CONTRACT_REGISTRY.find(
-        (c) => c.address.toLowerCase() === log.address.toLowerCase()
-      );
-
-      if (contract) {
-        try {
-          const event = contract.decoder(log);
-          if (event) {
-            // Siempre pasar el address como segundo parámetro
-            // FloorEngine lo ignora, pero los demás lo necesitan
-            await contract.processor(event, contract.address);
-            
-            const state = contractStates.find(
-              (s) => s.address === contract.address
-            )!;
-            state.eventsProcessed++;
-            totalEventsProcessed++;
-          }
-        } catch (error) {
-          console.error(
-            `${contract.color} [${contract.name}] Error procesando evento:`,
-            error
-          );
-        }
+      if (batchEvents > 0) {
+        console.log(`  💾 Progreso guardado`);
       }
     }
 
-    processedBatches += batchPromises.length;
-    
-    // Actualizar último bloque procesado para cada contrato
-    const lastProcessedBlock =
-      minStartBlock + BigInt(processedBatches) * BLOCKS_PER_BATCH - 1n;
-    const finalBlock = lastProcessedBlock > currentBlock ? currentBlock : lastProcessedBlock;
+    // Alternar modo
+    isForwardMode = !isForwardMode;
+    batchCounter++;
 
-    // Actualizar estados
-    for (const state of contractStates) {
-      if (state.startBlock <= finalBlock) {
-        state.lastSyncedBlock = finalBlock;
-      }
-    }
+    // Recalcular si hay más trabajo
+    hasForwardWork = contractStates.some((s) => s.hasMoreForward);
+    hasBackwardWork = contractStates.some((s) => s.hasMoreBackward);
 
-    // Log de progreso
-    if (processedBatches % 10 === 0 || i + PARALLEL_REQUESTS >= batchesToProcess) {
-      console.log(
-        `📦 Batch ${processedBatches}/${totalBatches}: ${allLogs.length} eventos (Total: ${totalEventsProcessed})`
-      );
-    }
-
-    // Guardar progreso cada N batches
-    if (
-      processedBatches % SAVE_PROGRESS_INTERVAL === 0 ||
-      i + PARALLEL_REQUESTS >= batchesToProcess
-    ) {
-      for (const state of contractStates) {
-        if (state.startBlock <= finalBlock) {
-          await updateLastSyncedBlockByContract(
-            state.address,
-            Number(state.lastSyncedBlock)
-          );
-        }
-      }
-      console.log(`💾 Progreso guardado: bloque ${finalBlock}`);
-    }
-
-    // Delay entre batches
-    if (i + PARALLEL_REQUESTS < batchesToProcess) {
+    // Pequeña pausa entre batches
+    if (hasForwardWork || hasBackwardWork) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }
 
-  // 5. Determinar si hay más trabajo pendiente
+  // 4. Determinar si hay más trabajo pendiente
   const hasMore = contractStates.some(
-    (state) => state.lastSyncedBlock < currentBlock
+    (s) => s.hasMoreForward || s.hasMoreBackward
   );
-
-  // 6. Actualizar estados finales
-  for (const state of contractStates) {
-    state.hasMore = state.lastSyncedBlock < currentBlock;
-  }
 
   const duration = Date.now() - startTime;
 
@@ -360,15 +428,16 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   
   for (const state of contractStates) {
     const contract = CONTRACT_REGISTRY.find((c) => c.address === state.address)!;
+    const status = state.hasMoreForward || state.hasMoreBackward ? '⏸️  Pendiente' : '✅ Sincronizado';
     console.log(
-      `${contract.color} [${state.name}] ${state.eventsProcessed} eventos | Bloque: ${state.lastSyncedBlock} | ${state.hasMore ? '⏸️  Pendiente' : '✅ Sincronizado'}`
+      `${contract.color} [${state.name}] ${state.eventsProcessed} eventos | Forward: ${state.lastSyncedBlock} | Backward: ${state.lastHistoricalBlock} | ${status}`
     );
   }
   
   console.log('');
   console.log(`🎉 Total: ${totalEventsProcessed} eventos procesados`);
   console.log(`⏱️  Duración: ${duration}ms (${(duration / 1000).toFixed(2)}s)`);
-  console.log(`📍 Bloques: ${minStartBlock} → ${currentBlock}`);
+  console.log(`📍 Bloques procesados: ${batchCounter} batches`);
 
   return {
     contractStates,

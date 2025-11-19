@@ -3,7 +3,7 @@
  * Ejecuta sincronizaciones en un loop continuo
  */
 
-import { syncEvents } from './listener.js';
+import { syncAllContracts } from './unified-listener.js';
 import 'dotenv/config';
 
 // Intervalo entre sincronizaciones (en milisegundos)
@@ -22,12 +22,13 @@ async function runSync(): Promise<void> {
   console.log('═'.repeat(80));
 
   try {
-    const result = await syncEvents();
+    const result = await syncAllContracts();
 
     console.log('');
     console.log('✅ Sincronización completada exitosamente');
-    console.log(`📊 Eventos procesados: ${result.processed}`);
-    console.log(`📍 Bloques: ${result.fromBlock} → ${result.toBlock}`);
+    console.log(`📊 Eventos procesados: ${result.totalEventsProcessed}`);
+    console.log(`⏱️  Duración: ${(result.duration / 1000).toFixed(2)}s`);
+    console.log(`📍 Estado: ${result.hasMore ? 'Pendiente' : 'Completo'}`);
     console.log(
       `⏰ Próxima sincronización en ${SYNC_INTERVAL / 1000 / 60} minutos`
     );
@@ -45,11 +46,11 @@ async function runSync(): Promise<void> {
  */
 async function startSyncLoop(): Promise<void> {
   console.log('');
-  console.log('🚀 FloorEngine Listener Bot - Railway Mode');
+  console.log('🚀 Multi-Contract Listener Bot - Railway Mode');
   console.log('═'.repeat(80));
   console.log(`⏰ Intervalo de sincronización: ${SYNC_INTERVAL / 1000 / 60} minutos`);
   console.log(`🌐 Network: Base Mainnet`);
-  console.log(`📦 Contrato: 0x0351F7cBA83277E891D4a85Da498A7eACD764D58`);
+  console.log(`🔄 Modo: Intercalado (Forward ↔ Backward)`);
   console.log('═'.repeat(80));
   console.log('');
 
