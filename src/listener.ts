@@ -585,7 +585,6 @@ export async function syncEvents(maxBatches?: number): Promise<{
 
   // Limitar batches si se especifica maxBatches
   const batchesToProcess = maxBatches ? Math.min(totalBatches, maxBatches) : totalBatches;
-  const hasMore = maxBatches ? totalBatches > maxBatches : false;
 
   // Procesar en batches paralelos con guardado incremental
   let allLogs: Log[] = [];
@@ -657,6 +656,10 @@ export async function syncEvents(maxBatches?: number): Promise<{
 
   // Asegurar que el progreso final esté guardado
   await updateLastSyncedBlock(Number(lastProcessedBlock));
+
+  // Recalcular hasMore al final comparando con el bloque actual (puede haber cambiado durante el procesamiento)
+  const currentLatestBlock = await client.getBlockNumber();
+  const hasMore = lastProcessedBlock < currentLatestBlock;
 
   console.log(
     `🎉 Sincronización completada: ${processedEvents} eventos procesados de ${allLogs.length} logs encontrados`

@@ -288,7 +288,6 @@ export async function syncERC20Events(maxBatches?: number): Promise<{
 
   // Limitar batches si se especifica maxBatches
   const batchesToProcess = maxBatches ? Math.min(totalBatches, maxBatches) : totalBatches;
-  const hasMore = maxBatches ? totalBatches > maxBatches : false;
 
   // Procesar en batches paralelos con guardado incremental
   let allLogs: Log[] = [];
@@ -364,6 +363,10 @@ export async function syncERC20Events(maxBatches?: number): Promise<{
 
   // Asegurar que el progreso final esté guardado
   await updateLastSyncedBlockByContract(contractAddress, Number(lastProcessedBlock));
+
+  // Recalcular hasMore al final comparando con el bloque actual (puede haber cambiado durante el procesamiento)
+  const currentLatestBlock = await client.getBlockNumber();
+  const hasMore = lastProcessedBlock < currentLatestBlock;
 
   console.log(
     `[ADRIAN-ERC20] 🎉 Sincronización completada: ${processedEvents} eventos procesados de ${allLogs.length} logs encontrados`
