@@ -53,7 +53,13 @@ GROUP BY DATE(created_at)
 ORDER BY fecha DESC;
 
 -- ============================================================================
--- NOTA: Para actualizar las fechas, necesitarás ejecutar el script Node.js
--- que obtiene los timestamps reales de los bloques desde la blockchain
+-- INSTRUCCIONES PARA CORREGIR TIMESTAMPS:
+-- 
+-- 1. Este script SQL solo identifica eventos problemáticos (solo lectura)
+-- 2. Para CORREGIR las fechas, ejecuta en la TERMINAL (no en SQL):
+--    npm run fix-timestamps
+-- 
+-- El script Node.js obtendrá los timestamps reales de los bloques
+-- desde la blockchain y actualizará las fechas en la base de datos.
 -- ============================================================================
 
