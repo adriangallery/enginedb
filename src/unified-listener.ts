@@ -425,8 +425,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
             if (fromBlock <= currentBlock) {
               blockRanges.push({ from: fromBlock, to: toBlock });
               // Agregar delay progresivo entre requests para evitar rate limiting
-              // Delay de 100ms entre cada request paralelo
-              const delay = i * 100;
+              // Reducir delay a 50ms para mayor velocidad (antes 100ms)
+              const delay = i * 50;
               parallelPromises.push(
                 (async () => {
                   if (delay > 0) {
@@ -639,11 +639,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
       }
     }
 
-    // Alternar modo (solo si no estamos en modo fallback)
-    if (!useFallback) {
-      isForwardMode = !isForwardMode;
-    }
-    // En modo fallback, siempre forward
+    // No alternar automáticamente, la lógica de priorización lo maneja arriba
     batchCounter++;
 
     // Recalcular si hay más trabajo
