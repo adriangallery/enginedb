@@ -250,14 +250,18 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     
     let lastHistoricalBlock = await getLastHistoricalBlockByContract(contract.address);
     
+    // Bloque de inicio objetivo (38293582)
+    const targetStartBlock = fallbackStartBlock || 38293582n;
+    
     // En modo fallback, deshabilitar backward sync
     if (useFallback) {
       // No procesar histórico en modo fallback
       lastHistoricalBlock = null;
       
-      // Si no tiene registro forward, usar bloque de inicio configurado o bloque actual - 1
-      if (lastSyncedBlock === 0n) {
-        const initialBlock = fallbackStartBlock || (currentBlock - 1n);
+      // Si no tiene registro forward O si está muy atrás del bloque objetivo, resetear
+      if (lastSyncedBlock === 0n || lastSyncedBlock < targetStartBlock) {
+        const initialBlock = targetStartBlock - 1n; // Un bloque antes para que el siguiente sea targetStartBlock
+        console.log(`${contract.color} [${contract.name}] Resetear forward: ${lastSyncedBlock} → ${initialBlock} (objetivo: ${targetStartBlock})`);
         await updateLastSyncedBlockByContract(
           contract.address,
           Number(initialBlock)
@@ -274,15 +278,25 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
         );
       }
       
-      // Si no tiene registro forward, inicializar con bloque actual - 1 para empezar desde ahora
-      // (después de limpiar datos, queremos priorizar tiempo real)
-      if (lastSyncedBlock === 0n) {
-        const initialBlock = currentBlock - 1n;
+      // Si no tiene registro forward O si está muy atrás del bloque objetivo, resetear
+      if (lastSyncedBlock === 0n || lastSyncedBlock < targetStartBlock) {
+        const initialBlock = targetStartBlock - 1n; // Un bloque antes para que el siguiente sea targetStartBlock
+        console.log(`${contract.color} [${contract.name}] Resetear forward: ${lastSyncedBlock} → ${initialBlock} (objetivo: ${targetStartBlock})`);
       await updateLastSyncedBlockByContract(
         contract.address,
         Number(initialBlock)
       );
       lastSyncedBlock = initialBlock;
+    }
+    
+      // Si lastHistoricalBlock está muy adelante del bloque objetivo, resetear también
+      if (lastHistoricalBlock !== null && BigInt(lastHistoricalBlock) > targetStartBlock) {
+        console.log(`${contract.color} [${contract.name}] Resetear backward: ${lastHistoricalBlock} → ${targetStartBlock}`);
+        lastHistoricalBlock = Number(targetStartBlock);
+        await updateLastHistoricalBlockByContract(
+          contract.address,
+          lastHistoricalBlock
+        );
       }
     }
     
