@@ -221,6 +221,13 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     ? BigInt(process.env.FALLBACK_START_BLOCK)
     : 38293582n; // Bloque de inicio por defecto (público)
 
+  // Aumentar paralelismo para procesar ~75k bloques/día
+  // Con 20 paralelos * 10 bloques = 200 bloques por ciclo
+  // Con delay de 500ms entre ciclos = ~400 bloques/segundo = ~34M bloques/día (más que suficiente)
+  const PARALLEL_REQUESTS = process.env.PARALLEL_REQUESTS
+    ? parseInt(process.env.PARALLEL_REQUESTS)
+    : useFallback ? 10 : 20; // Default: 10 en fallback, 20 en modo normal (alta capacidad)
+
   if (useFallback) {
     console.log('🔄 Modo Fallback RPC - Solo Forward (sin histórico)');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
