@@ -4,6 +4,7 @@
  * y actualiza las fechas en la base de datos
  */
 
+import 'dotenv/config';
 import { createViemClient } from '../src/listener.js';
 import { getSupabaseClient } from '../src/supabase/client.js';
 
@@ -174,6 +175,22 @@ async function updateEventTimestamps(
  */
 async function main() {
   console.log('🔧 Iniciando corrección de timestamps de eventos...\n');
+
+  // Verificar variables de entorno antes de empezar
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('❌ Error: Faltan variables de entorno requeridas\n');
+    console.log('📝 Por favor, configura las siguientes variables de entorno:');
+    console.log('   - SUPABASE_URL');
+    console.log('   - SUPABASE_SERVICE_ROLE_KEY\n');
+    console.log('💡 Opciones:');
+    console.log('   1. Crear un archivo .env con estas variables');
+    console.log('   2. Exportar las variables en la terminal:');
+    console.log('      export SUPABASE_URL="tu-url"');
+    console.log('      export SUPABASE_SERVICE_ROLE_KEY="tu-key"');
+    console.log('   3. Ejecutar con variables inline:');
+    console.log('      SUPABASE_URL="..." SUPABASE_SERVICE_ROLE_KEY="..." npm run fix-timestamps\n');
+    process.exit(1);
+  }
 
   try {
     // 1. Obtener eventos que necesitan corrección
