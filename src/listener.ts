@@ -72,12 +72,14 @@ export function createViemClient() {
     console.log(`📍 Usando RPC público: ${rpcUrl}`);
   } else {
     // Usar RPC principal (Alchemy)
-    rpcUrl = process.env.RPC_URL_BASE;
-    if (!rpcUrl) {
+    const rpcUrlBase = process.env.RPC_URL_BASE;
+    if (!rpcUrlBase) {
       // Si no hay RPC_URL_BASE, usar fallback automáticamente
       rpcUrl = 'https://mainnet.base.org';
       console.log('⚠️  RPC_URL_BASE no configurado, usando RPC público por defecto');
       console.log(`📍 Usando RPC: ${rpcUrl}`);
+    } else {
+      rpcUrl = rpcUrlBase as string;
     }
   }
 

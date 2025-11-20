@@ -202,7 +202,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     }
   } else {
     console.log('🌐 Sincronización Unificada Multi-Contrato (Intercalada)');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }
 
   // 1. Obtener estado de sincronización de cada contrato
@@ -244,11 +244,11 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
       // (después de limpiar datos, queremos priorizar tiempo real)
       if (lastSyncedBlock === 0n) {
         const initialBlock = currentBlock - 1n;
-        await updateLastSyncedBlockByContract(
-          contract.address,
-          Number(initialBlock)
-        );
-        lastSyncedBlock = initialBlock;
+      await updateLastSyncedBlockByContract(
+        contract.address,
+        Number(initialBlock)
+      );
+      lastSyncedBlock = initialBlock;
       }
     }
     
@@ -347,7 +347,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           minForwardBlock
         );
 
-        const effectiveEndBlock = maxBlockToProcess > currentBlock ? currentBlock : maxBlockToProcess;
+        const effectiveEndBlock: bigint = maxBlockToProcess > currentBlock ? currentBlock : maxBlockToProcess;
         const totalBlocksToProcess = effectiveEndBlock - minForwardBlock + 1n;
         const batchesToProcess = Number(
           totalBlocksToProcess / BLOCKS_PER_BATCH + 
@@ -365,8 +365,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           for (let i = 0; i < parallelBatches; i++) {
             const fromBlock = minForwardBlock + BigInt(i) * BLOCKS_PER_BATCH;
             const toBlock = fromBlock + BLOCKS_PER_BATCH - 1n > currentBlock
-              ? currentBlock
-              : fromBlock + BLOCKS_PER_BATCH - 1n;
+          ? currentBlock
+          : fromBlock + BLOCKS_PER_BATCH - 1n;
 
             if (fromBlock <= currentBlock) {
               blockRanges.push({ from: fromBlock, to: toBlock });
@@ -392,16 +392,16 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           }
 
           // Procesar logs
-          for (const log of allLogs) {
-            const contract = CONTRACT_REGISTRY.find(
-              (c) => c.address.toLowerCase() === log.address.toLowerCase()
-            );
+    for (const log of allLogs) {
+      const contract = CONTRACT_REGISTRY.find(
+        (c) => c.address.toLowerCase() === log.address.toLowerCase()
+      );
 
-            if (contract) {
-              try {
-                const event = contract.decoder(log);
-                if (event) {
-                  await contract.processor(event, contract.address);
+      if (contract) {
+        try {
+          const event = contract.decoder(log);
+          if (event) {
+            await contract.processor(event, contract.address);
                   const state = contractStates.find((s) => s.address === contract.address)!;
                   state.eventsProcessed++;
                   batchEvents++;
@@ -511,18 +511,18 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
                   if (event) {
                     await contract.processor(event, contract.address);
                     const state = contractStates.find((s) => s.address === contract.address)!;
-                    state.eventsProcessed++;
+            state.eventsProcessed++;
                     batchEvents++;
-                    totalEventsProcessed++;
-                  }
-                } catch (error) {
-                  console.error(
-                    `${contract.color} [${contract.name}] Error procesando evento:`,
-                    error
-                  );
-                }
-              }
-            }
+            totalEventsProcessed++;
+          }
+        } catch (error) {
+          console.error(
+            `${contract.color} [${contract.name}] Error procesando evento:`,
+            error
+          );
+        }
+      }
+    }
 
             // Actualizar estados backward (usar el bloque más bajo procesado)
             const firstProcessedBlock = blockRanges.length > 0 
@@ -552,7 +552,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     
     if (shouldSave) {
       try {
-        for (const state of contractStates) {
+      for (const state of contractStates) {
           await updateLastSyncedBlockByContract(
             state.address,
             Number(state.lastSyncedBlock)
