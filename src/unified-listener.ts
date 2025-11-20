@@ -302,8 +302,10 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     
     const forwardStartBlock = lastSyncedBlock + 1n;
     
-    // En modo fallback, no hay backward sync
-    const backwardStartBlock = useFallback ? null : (lastHistoricalBlock ? BigInt(lastHistoricalBlock) - 1n : null);
+    // TEMPORALMENTE: Deshabilitar backward
+    const DISABLE_BACKWARD = true;
+    // En modo fallback o si backward está deshabilitado, no hay backward sync
+    const backwardStartBlock = (useFallback || DISABLE_BACKWARD) ? null : (lastHistoricalBlock ? BigInt(lastHistoricalBlock) - 1n : null);
 
     contractStates.push({
       name: contract.name,
@@ -313,7 +315,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
       startBlock: contract.startBlock,
       eventsProcessed: 0,
       hasMoreForward: forwardStartBlock <= currentBlock,
-      hasMoreBackward: useFallback ? false : (backwardStartBlock !== null && backwardStartBlock >= contract.startBlock),
+      hasMoreBackward: (useFallback || DISABLE_BACKWARD) ? false : (backwardStartBlock !== null && backwardStartBlock >= contract.startBlock),
     });
 
     console.log(
@@ -328,8 +330,10 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   );
 
   // 2. Verificar si hay trabajo pendiente
+  // TEMPORALMENTE: Solo forward, deshabilitar backward
+  const DISABLE_BACKWARD = true; // Cambiar a false cuando queramos habilitar backward
   let hasForwardWork = contractStates.some((s) => s.hasMoreForward);
-  let hasBackwardWork = useFallback ? false : contractStates.some((s) => s.hasMoreBackward);
+  let hasBackwardWork = (useFallback || DISABLE_BACKWARD) ? false : contractStates.some((s) => s.hasMoreBackward);
 
   if (!hasForwardWork && !hasBackwardWork) {
     console.log('✅ Todos los contratos están completamente sincronizados');
@@ -342,11 +346,16 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   }
 
   console.log('');
-  if (useFallback) {
-    console.log(`📦 Modo: Fallback RPC (Solo Forward)`);
+  // TEMPORALMENTE: Solo forward, deshabilitar backward
+  const DISABLE_BACKWARD = true;
+  
+  if (useFallback || DISABLE_BACKWARD) {
+    console.log(`📦 Modo: Solo Forward${DISABLE_BACKWARD ? ' (Backward deshabilitado temporalmente)' : ' (Fallback RPC)'}`);
     console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
     console.log(`🚀 Paralelismo: ${PARALLEL_REQUESTS} requests simultáneos (${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo)`);
-    console.log(`⚠️  Nota: Modo más lento, solo sincroniza hacia adelante`);
+    if (useFallback) {
+      console.log(`⚠️  Nota: Modo más lento, solo sincroniza hacia adelante`);
+    }
   } else {
     console.log(`📦 Modo: Intercalado (Forward ↔ Backward)`);
     console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
@@ -354,41 +363,20 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   }
   console.log('');
 
-  // 3. Procesar en modo intercalado (o solo forward en fallback)
-  // Priorizar forward: hacer 3 batches forward por cada 1 backward
+  // 3. Procesar en modo forward solamente (backward deshabilitado temporalmente)
   let totalEventsProcessed = 0;
   let batchCounter = 0;
-  let isForwardMode = true; // Empezar con forward (tiempo real tiene prioridad)
-  let forwardBatchCount = 0; // Contador de batches forward consecutivos
-  const FORWARD_BATCHES_PER_CYCLE = 3; // Hacer 3 batches forward antes de 1 backward
+  let isForwardMode = true; // Solo forward por ahora
 
-  // Procesar batches intercalados (o solo forward en modo fallback)
+  // Procesar solo forward (backward deshabilitado)
   while ((hasForwardWork || hasBackwardWork) && (!maxBatches || batchCounter < maxBatches)) {
-    // En modo fallback, solo procesar forward
-    if (useFallback && !isForwardMode) {
-      isForwardMode = true; // Forzar forward en modo fallback
-    }
-    
-    // Lógica de priorización: hacer más batches forward que backward
-    if (!useFallback && isForwardMode && hasForwardWork) {
-      forwardBatchCount++;
-      // Si ya hicimos suficientes batches forward y hay trabajo backward, cambiar
-      if (forwardBatchCount >= FORWARD_BATCHES_PER_CYCLE && hasBackwardWork) {
-        isForwardMode = false;
-        forwardBatchCount = 0;
-      }
-    } else if (!useFallback && !isForwardMode && hasBackwardWork) {
-      // Después de 1 batch backward, volver a forward
+    // Forzar solo forward (backward deshabilitado)
+    if (!isForwardMode || (useFallback || DISABLE_BACKWARD)) {
       isForwardMode = true;
-      forwardBatchCount = 0;
-    } else if (!useFallback && !isForwardMode && !hasBackwardWork) {
-      // Si no hay trabajo backward, volver a forward
-      isForwardMode = true;
-      forwardBatchCount = 0;
     }
     
     const mode = isForwardMode ? 'FORWARD' : 'BACKWARD';
-    console.log(`\n🔄 Batch ${batchCounter + 1} - Modo: ${mode}`);
+    console.log(`\n🔄 Batch ${batchCounter + 1} - Modo: ${mode}${DISABLE_BACKWARD ? ' (Backward deshabilitado)' : ''}`);
 
     let batchEvents = 0;
 
