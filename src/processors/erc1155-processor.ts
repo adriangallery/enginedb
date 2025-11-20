@@ -175,7 +175,8 @@ async function processCustomEvent(
     | PaymentTokenUpdatedEvent
     | AssetUpdatedEvent
     | BaseURIUpdatedEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 

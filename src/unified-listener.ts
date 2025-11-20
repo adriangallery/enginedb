@@ -482,7 +482,9 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           }
 
           // Obtener timestamps de bloques únicos para usar en created_at
-          const uniqueBlockNumbers = [...new Set(allLogs.map(log => log.blockNumber))];
+          // Filtrar logs sin blockNumber (no debería pasar, pero por seguridad)
+          const validLogs = allLogs.filter(log => log.blockNumber !== null);
+          const uniqueBlockNumbers = [...new Set(validLogs.map(log => log.blockNumber!))];
           const blockTimestamps = new Map<bigint, Date>();
           
           // Obtener timestamps de bloques en paralelo (con límite para no sobrecargar)
@@ -499,8 +501,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           
           await Promise.all(blockPromises);
 
-          // Procesar logs
-    for (const log of allLogs) {
+          // Procesar logs (solo los que tienen blockNumber)
+    for (const log of validLogs) {
       const contract = CONTRACT_REGISTRY.find(
         (c) => c.address.toLowerCase() === log.address.toLowerCase()
       );
@@ -510,7 +512,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           const event = contract.decoder(log);
           if (event) {
             // Obtener timestamp del bloque para este evento
-            const blockTimestamp = blockTimestamps.get(log.blockNumber) || new Date();
+            const blockTimestamp = blockTimestamps.get(log.blockNumber!) || new Date();
             await contract.processor(event, contract.address, blockTimestamp);
                   const state = contractStates.find((s) => s.address === contract.address)!;
             state.eventsProcessed++;
@@ -617,7 +619,9 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
             }
 
           // Obtener timestamps de bloques únicos para usar en created_at
-          const uniqueBlockNumbers = [...new Set(allLogs.map(log => log.blockNumber))];
+          // Filtrar logs sin blockNumber (no debería pasar, pero por seguridad)
+          const validLogs = allLogs.filter(log => log.blockNumber !== null);
+          const uniqueBlockNumbers = [...new Set(validLogs.map(log => log.blockNumber!))];
           const blockTimestamps = new Map<bigint, Date>();
           
           // Obtener timestamps de bloques en paralelo (con límite para no sobrecargar)
@@ -634,8 +638,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           
           await Promise.all(blockPromises);
 
-          // Procesar logs
-          for (const log of allLogs) {
+          // Procesar logs (solo los que tienen blockNumber)
+          for (const log of validLogs) {
             const contract = CONTRACT_REGISTRY.find(
               (c) => c.address.toLowerCase() === log.address.toLowerCase()
             );
@@ -645,7 +649,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
                 const event = contract.decoder(log);
                 if (event) {
                   // Obtener timestamp del bloque para este evento
-                  const blockTimestamp = blockTimestamps.get(log.blockNumber) || new Date();
+                  const blockTimestamp = blockTimestamps.get(log.blockNumber!) || new Date();
                   await contract.processor(event, contract.address, blockTimestamp);
                   const state = contractStates.find((s) => s.address === contract.address)!;
                   state.eventsProcessed++;
