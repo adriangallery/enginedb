@@ -242,7 +242,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   // Velocidad adaptativa según backlog:
   // - >1000 bloques: Alta velocidad (20 paralelos) - Necesitamos ponernos al día rápido
   // - 100-1000 bloques: Velocidad media (10 paralelos) - Backlog moderado
-  // - <100 bloques: Velocidad baja (5 paralelos) - Casi al día, no sobrecargar
+  // - 10-100 bloques: Velocidad normal (3-5 paralelos) - Pequeño backlog, mantener ritmo
+  // - <10 bloques: Velocidad baja (2 paralelos) - Casi al día, no sobrecargar
   let adaptiveParallelism: number;
   let adaptiveDelay: number;
   
@@ -254,6 +255,10 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     adaptiveParallelism = useFallback ? 5 : 10; // Velocidad media
     adaptiveDelay = useFallback ? 1500 : 1000; // Delay medio
     console.log(`⚡ Modo: Velocidad media (backlog: ~${avgBacklog} bloques)`);
+  } else if (avgBacklog > 10n) {
+    adaptiveParallelism = useFallback ? 3 : 5; // Velocidad normal - suficiente para mantenerse al día
+    adaptiveDelay = useFallback ? 1000 : 500; // Delay corto para reducir backlog
+    console.log(`⚡ Modo: Velocidad normal (backlog: ~${avgBacklog} bloques) - Manteniendo ritmo`);
   } else {
     adaptiveParallelism = useFallback ? 2 : 5; // Velocidad baja
     adaptiveDelay = useFallback ? 2000 : 2000; // Delay largo para no sobrecargar
