@@ -95,7 +95,7 @@ export function createViemClient() {
 /**
  * Procesar evento Listed
  */
-async function processListedEvent(event: ListedEvent): Promise<void> {
+async function processListedEvent(event: ListedEvent, blockTimestamp?: Date): Promise<void> {
   const supabase = getSupabaseClient();
 
   // 1. Insertar en listing_events
@@ -108,6 +108,7 @@ async function processListedEvent(event: ListedEvent): Promise<void> {
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (listingError && !listingError.message.includes('duplicate key')) {
@@ -141,7 +142,7 @@ async function processListedEvent(event: ListedEvent): Promise<void> {
 /**
  * Procesar evento Cancelled
  */
-async function processCancelledEvent(event: CancelledEvent): Promise<void> {
+async function processCancelledEvent(event: CancelledEvent, blockTimestamp?: Date): Promise<void> {
   const supabase = getSupabaseClient();
 
   // 1. Insertar en listing_events
@@ -154,6 +155,7 @@ async function processCancelledEvent(event: CancelledEvent): Promise<void> {
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (listingError && !listingError.message.includes('duplicate key')) {
@@ -187,7 +189,7 @@ async function processCancelledEvent(event: CancelledEvent): Promise<void> {
 /**
  * Procesar evento Bought
  */
-async function processBoughtEvent(event: BoughtEvent): Promise<void> {
+async function processBoughtEvent(event: BoughtEvent, blockTimestamp?: Date): Promise<void> {
   const supabase = getSupabaseClient();
 
   // 1. Insertar en trade_events
@@ -200,6 +202,7 @@ async function processBoughtEvent(event: BoughtEvent): Promise<void> {
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (tradeError && !tradeError.message.includes('duplicate key')) {
@@ -233,7 +236,7 @@ async function processBoughtEvent(event: BoughtEvent): Promise<void> {
 /**
  * Procesar evento FloorSweep
  */
-async function processFloorSweepEvent(event: FloorSweepEvent): Promise<void> {
+async function processFloorSweepEvent(event: FloorSweepEvent, blockTimestamp?: Date): Promise<void> {
   const supabase = getSupabaseClient();
 
   // 1. Insertar en sweep_events
@@ -246,6 +249,7 @@ async function processFloorSweepEvent(event: FloorSweepEvent): Promise<void> {
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (sweepError && !sweepError.message.includes('duplicate key')) {
@@ -286,7 +290,8 @@ async function processConfigEvent(
     | CallerRewardModeUpdatedEvent
     | CallerRewardBpsUpdatedEvent
     | CallerRewardFixedUpdatedEvent
-    | OwnershipTransferredEvent
+    | OwnershipTransferredEvent,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -322,6 +327,7 @@ async function processConfigEvent(
   const { error } = await supabase.from('engine_config_events').insert({
     event_type: event.eventName,
     old_value: oldValue,
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
     new_value: newValue,
     tx_hash: event.txHash,
     log_index: event.logIndex,
@@ -473,19 +479,19 @@ export function decodeLog(log: Log): FloorEngineEvent | null {
 /**
  * Procesar un evento según su tipo
  */
-export async function processEvent(event: FloorEngineEvent, _contractAddress?: string): Promise<void> {
+export async function processEvent(event: FloorEngineEvent, _contractAddress?: string, blockTimestamp?: Date): Promise<void> {
   switch (event.eventName) {
     case 'Listed':
-      await processListedEvent(event);
+      await processListedEvent(event, blockTimestamp);
       break;
     case 'Cancelled':
-      await processCancelledEvent(event);
+      await processCancelledEvent(event, blockTimestamp);
       break;
     case 'Bought':
-      await processBoughtEvent(event);
+      await processBoughtEvent(event, blockTimestamp);
       break;
     case 'FloorSweep':
-      await processFloorSweepEvent(event);
+      await processFloorSweepEvent(event, blockTimestamp);
       break;
     case 'PremiumUpdated':
     case 'MaxBuyPriceUpdated':
@@ -493,7 +499,7 @@ export async function processEvent(event: FloorEngineEvent, _contractAddress?: s
     case 'CallerRewardBpsUpdated':
     case 'CallerRewardFixedUpdated':
     case 'OwnershipTransferred':
-      await processConfigEvent(event);
+      await processConfigEvent(event, blockTimestamp);
       break;
   }
 }
