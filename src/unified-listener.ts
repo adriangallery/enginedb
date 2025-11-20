@@ -647,9 +647,9 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     hasBackwardWork = contractStates.some((s) => s.hasMoreBackward);
 
     // Pausa entre batches para evitar rate limiting
-    // En modo fallback, usar delay más largo (RPC público es más lento)
+    // Reducir delays para mayor velocidad: 500ms en normal, 1s en fallback
     if (hasForwardWork || hasBackwardWork) {
-      const delay = useFallback ? 2000 : 1000; // 2 segundos en fallback, 1 segundo en normal
+      const delay = useFallback ? 1000 : 500; // 1 segundo en fallback, 500ms en normal (más rápido)
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
