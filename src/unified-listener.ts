@@ -44,9 +44,10 @@ const BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
 // Para histórico: usar valores más altos (5-10) para acelerar
 // Para tiempo real: 3-5 es suficiente
 // Nota: Alchemy Free tier tiene límites de rate, usar con moderación
+// En modo fallback (RPC público), usar menos paralelismo
 const PARALLEL_REQUESTS = process.env.PARALLEL_REQUESTS
   ? parseInt(process.env.PARALLEL_REQUESTS)
-  : 5; // Default: 5 requests paralelos (balance entre velocidad y rate limits)
+  : (process.env.USE_FALLBACK_RPC === 'true' ? 2 : 5); // Default: 2 en fallback, 5 en modo normal
 
 const SAVE_PROGRESS_INTERVAL = 50; // Guardar progreso cada N batches
 
@@ -185,8 +186,22 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   const startTime = Date.now();
   const client = createViemClient();
 
-  console.log('🌐 Sincronización Unificada Multi-Contrato (Intercalada)');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  // Detectar modo fallback (solo forward, más lento)
+  const useFallback = process.env.USE_FALLBACK_RPC === 'true';
+  const fallbackStartBlock = process.env.FALLBACK_START_BLOCK
+    ? BigInt(process.env.FALLBACK_START_BLOCK)
+    : null;
+
+  if (useFallback) {
+    console.log('🔄 Modo Fallback RPC - Solo Forward (sin histórico)');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    if (fallbackStartBlock) {
+      console.log(`📍 Bloque de inicio configurado: ${fallbackStartBlock}`);
+    }
+  } else {
+    console.log('🌐 Sincronización Unificada Multi-Contrato (Intercalada)');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  }
 
   // 1. Obtener estado de sincronización de cada contrato
   const contractStates: ContractSyncState[] = [];
@@ -199,39 +214,56 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     
     let lastHistoricalBlock = await getLastHistoricalBlockByContract(contract.address);
     
-    // Inicializar lastHistoricalBlock con el bloque actual si es null
-    if (lastHistoricalBlock === null) {
-      lastHistoricalBlock = Number(currentBlock);
-      await updateLastHistoricalBlockByContract(
-        contract.address,
-        lastHistoricalBlock
-      );
-    }
-    
-    // Si no tiene registro forward, inicializar con bloque actual - 1 para empezar desde ahora
-    // (después de limpiar datos, queremos priorizar tiempo real)
-    if (lastSyncedBlock === 0n) {
-      const initialBlock = currentBlock - 1n;
-      await updateLastSyncedBlockByContract(
-        contract.address,
-        Number(initialBlock)
-      );
-      lastSyncedBlock = initialBlock;
+    // En modo fallback, deshabilitar backward sync
+    if (useFallback) {
+      // No procesar histórico en modo fallback
+      lastHistoricalBlock = null;
+      
+      // Si no tiene registro forward, usar bloque de inicio configurado o bloque actual - 1
+      if (lastSyncedBlock === 0n) {
+        const initialBlock = fallbackStartBlock || (currentBlock - 1n);
+        await updateLastSyncedBlockByContract(
+          contract.address,
+          Number(initialBlock)
+        );
+        lastSyncedBlock = initialBlock;
+      }
+    } else {
+      // Modo normal: inicializar lastHistoricalBlock con el bloque actual si es null
+      if (lastHistoricalBlock === null) {
+        lastHistoricalBlock = Number(currentBlock);
+        await updateLastHistoricalBlockByContract(
+          contract.address,
+          lastHistoricalBlock
+        );
+      }
+      
+      // Si no tiene registro forward, inicializar con bloque actual - 1 para empezar desde ahora
+      // (después de limpiar datos, queremos priorizar tiempo real)
+      if (lastSyncedBlock === 0n) {
+        const initialBlock = currentBlock - 1n;
+        await updateLastSyncedBlockByContract(
+          contract.address,
+          Number(initialBlock)
+        );
+        lastSyncedBlock = initialBlock;
+      }
     }
     
     const forwardStartBlock = lastSyncedBlock + 1n;
     
-    const backwardStartBlock = BigInt(lastHistoricalBlock) - 1n;
+    // En modo fallback, no hay backward sync
+    const backwardStartBlock = useFallback ? null : (lastHistoricalBlock ? BigInt(lastHistoricalBlock) - 1n : null);
 
     contractStates.push({
       name: contract.name,
       address: contract.address,
       lastSyncedBlock,
-      lastHistoricalBlock: BigInt(lastHistoricalBlock),
+      lastHistoricalBlock: lastHistoricalBlock ? BigInt(lastHistoricalBlock) : null,
       startBlock: contract.startBlock,
       eventsProcessed: 0,
       hasMoreForward: forwardStartBlock <= currentBlock,
-      hasMoreBackward: backwardStartBlock >= contract.startBlock,
+      hasMoreBackward: useFallback ? false : (backwardStartBlock !== null && backwardStartBlock >= contract.startBlock),
     });
 
     console.log(
@@ -247,7 +279,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
   // 2. Verificar si hay trabajo pendiente
   let hasForwardWork = contractStates.some((s) => s.hasMoreForward);
-  let hasBackwardWork = contractStates.some((s) => s.hasMoreBackward);
+  let hasBackwardWork = useFallback ? false : contractStates.some((s) => s.hasMoreBackward);
 
   if (!hasForwardWork && !hasBackwardWork) {
     console.log('✅ Todos los contratos están completamente sincronizados');
@@ -260,18 +292,30 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   }
 
   console.log('');
-  console.log(`📦 Modo: Intercalado (Forward ↔ Backward)`);
-  console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
-  console.log(`🚀 Paralelismo: ${PARALLEL_REQUESTS} requests simultáneos (${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo)`);
+  if (useFallback) {
+    console.log(`📦 Modo: Fallback RPC (Solo Forward)`);
+    console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
+    console.log(`🚀 Paralelismo: ${PARALLEL_REQUESTS} requests simultáneos (${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo)`);
+    console.log(`⚠️  Nota: Modo más lento, solo sincroniza hacia adelante`);
+  } else {
+    console.log(`📦 Modo: Intercalado (Forward ↔ Backward)`);
+    console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
+    console.log(`🚀 Paralelismo: ${PARALLEL_REQUESTS} requests simultáneos (${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo)`);
+  }
   console.log('');
 
-  // 3. Procesar en modo intercalado
+  // 3. Procesar en modo intercalado (o solo forward en fallback)
   let totalEventsProcessed = 0;
   let batchCounter = 0;
   let isForwardMode = true; // Empezar con forward (tiempo real tiene prioridad)
 
-  // Procesar batches intercalados
+  // Procesar batches intercalados (o solo forward en modo fallback)
   while ((hasForwardWork || hasBackwardWork) && (!maxBatches || batchCounter < maxBatches)) {
+    // En modo fallback, solo procesar forward
+    if (useFallback && !isForwardMode) {
+      isForwardMode = true; // Forzar forward en modo fallback
+    }
+    
     const mode = isForwardMode ? 'FORWARD' : 'BACKWARD';
     console.log(`\n🔄 Batch ${batchCounter + 1} - Modo: ${mode}`);
 
@@ -517,8 +561,11 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
       }
     }
 
-    // Alternar modo
-    isForwardMode = !isForwardMode;
+    // Alternar modo (solo si no estamos en modo fallback)
+    if (!useFallback) {
+      isForwardMode = !isForwardMode;
+    }
+    // En modo fallback, siempre forward
     batchCounter++;
 
     // Recalcular si hay más trabajo
@@ -526,9 +573,10 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     hasBackwardWork = contractStates.some((s) => s.hasMoreBackward);
 
     // Pausa entre batches para evitar rate limiting
-    // Aumentado a 1 segundo para dar más tiempo entre ciclos
+    // En modo fallback, usar delay más largo (RPC público es más lento)
     if (hasForwardWork || hasBackwardWork) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const delay = useFallback ? 2000 : 1000; // 2 segundos en fallback, 1 segundo en normal
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 

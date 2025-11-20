@@ -57,17 +57,33 @@ const START_BLOCK = process.env.START_BLOCK
 
 /**
  * Crear cliente de viem para Base mainnet
+ * Soporta switch entre Alchemy y RPC público/fallback
  */
 export function createViemClient() {
-  const rpcUrl = process.env.RPC_URL_BASE;
-
-  if (!rpcUrl) {
-    throw new Error('Falta la variable de entorno RPC_URL_BASE');
+  // Switch para usar RPC fallback (gratuito pero más lento)
+  const useFallback = process.env.USE_FALLBACK_RPC === 'true';
+  
+  let rpcUrl: string;
+  
+  if (useFallback) {
+    // Usar RPC fallback (público o configurado)
+    rpcUrl = process.env.FALLBACK_RPC_URL || 'https://mainnet.base.org';
+    console.log('🔄 Modo Fallback RPC activado (solo forward, más lento)');
+    console.log(`📍 Usando RPC: ${rpcUrl}`);
+  } else {
+    // Usar RPC principal (Alchemy)
+    rpcUrl = process.env.RPC_URL_BASE;
+    if (!rpcUrl) {
+      throw new Error('Falta la variable de entorno RPC_URL_BASE');
+    }
   }
 
   return createPublicClient({
     chain: base,
-    transport: http(rpcUrl),
+    transport: http(rpcUrl, {
+      // Timeout más largo para RPC público
+      timeout: useFallback ? 60000 : 30000,
+    }),
   });
 }
 
