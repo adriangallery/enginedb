@@ -340,15 +340,36 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   console.log('');
 
   // 3. Procesar en modo intercalado (o solo forward en fallback)
+  // Priorizar forward: hacer 3 batches forward por cada 1 backward
   let totalEventsProcessed = 0;
   let batchCounter = 0;
   let isForwardMode = true; // Empezar con forward (tiempo real tiene prioridad)
+  let forwardBatchCount = 0; // Contador de batches forward consecutivos
+  const FORWARD_BATCHES_PER_CYCLE = 3; // Hacer 3 batches forward antes de 1 backward
 
   // Procesar batches intercalados (o solo forward en modo fallback)
   while ((hasForwardWork || hasBackwardWork) && (!maxBatches || batchCounter < maxBatches)) {
     // En modo fallback, solo procesar forward
     if (useFallback && !isForwardMode) {
       isForwardMode = true; // Forzar forward en modo fallback
+    }
+    
+    // Lógica de priorización: hacer más batches forward que backward
+    if (!useFallback && isForwardMode && hasForwardWork) {
+      forwardBatchCount++;
+      // Si ya hicimos suficientes batches forward y hay trabajo backward, cambiar
+      if (forwardBatchCount >= FORWARD_BATCHES_PER_CYCLE && hasBackwardWork) {
+        isForwardMode = false;
+        forwardBatchCount = 0;
+      }
+    } else if (!useFallback && !isForwardMode && hasBackwardWork) {
+      // Después de 1 batch backward, volver a forward
+      isForwardMode = true;
+      forwardBatchCount = 0;
+    } else if (!useFallback && !isForwardMode && !hasBackwardWork) {
+      // Si no hay trabajo backward, volver a forward
+      isForwardMode = true;
+      forwardBatchCount = 0;
     }
     
     const mode = isForwardMode ? 'FORWARD' : 'BACKWARD';
@@ -519,8 +540,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
               if (fromBlock <= toBlock && toBlock >= minStartBlock) {
                 blockRanges.push({ from: fromBlock, to: toBlock });
                 // Agregar delay progresivo entre requests para evitar rate limiting
-                // Delay de 100ms entre cada request paralelo
-                const delay = i * 100;
+                // Reducir delay a 50ms para mayor velocidad (antes 100ms)
+                const delay = i * 50;
                 parallelPromises.push(
                   (async () => {
                     if (delay > 0) {
