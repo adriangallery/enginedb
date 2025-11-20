@@ -436,14 +436,14 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           if (event) {
             await contract.processor(event, contract.address);
                   const state = contractStates.find((s) => s.address === contract.address)!;
-                  state.eventsProcessed++;
+            state.eventsProcessed++;
                   batchEvents++;
-                  totalEventsProcessed++;
-                }
+            totalEventsProcessed++;
+          }
               } catch (error: any) {
                 // Log detallado del error para debugging
-                console.error(
-                  `${contract.color} [${contract.name}] Error procesando evento:`,
+          console.error(
+            `${contract.color} [${contract.name}] Error procesando evento:`,
                   error?.message || error
                 );
                 // No lanzar error, continuar con otros eventos
@@ -539,30 +539,37 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
               allLogs.push(...logs);
             }
 
-            // Procesar logs
-            for (const log of allLogs) {
-              const contract = CONTRACT_REGISTRY.find(
-                (c) => c.address.toLowerCase() === log.address.toLowerCase()
-              );
+          // Procesar logs
+          for (const log of allLogs) {
+            const contract = CONTRACT_REGISTRY.find(
+              (c) => c.address.toLowerCase() === log.address.toLowerCase()
+            );
 
-              if (contract) {
-                try {
-                  const event = contract.decoder(log);
-                  if (event) {
-                    await contract.processor(event, contract.address);
-                    const state = contractStates.find((s) => s.address === contract.address)!;
-            state.eventsProcessed++;
-                    batchEvents++;
-            totalEventsProcessed++;
+            if (contract) {
+              try {
+                const event = contract.decoder(log);
+                if (event) {
+                  await contract.processor(event, contract.address);
+                  const state = contractStates.find((s) => s.address === contract.address)!;
+                  state.eventsProcessed++;
+                  batchEvents++;
+                  totalEventsProcessed++;
+                }
+              } catch (error: any) {
+                // Log detallado del error para debugging
+                console.error(
+                  `${contract.color} [${contract.name}] Error procesando evento:`,
+                  error?.message || error
+                );
+                // No lanzar error, continuar con otros eventos
+              }
+            }
           }
-        } catch (error) {
-          console.error(
-            `${contract.color} [${contract.name}] Error procesando evento:`,
-            error
-          );
-        }
-      }
-    }
+          
+          // Log si hay logs pero no se procesaron eventos
+          if (allLogs.length > 0 && batchEvents === 0) {
+            console.warn(`  ⚠️  Se encontraron ${allLogs.length} logs pero no se procesaron eventos`);
+          }
 
             // Actualizar estados backward (usar el bloque más bajo procesado)
             const firstProcessedBlock = blockRanges.length > 0 
