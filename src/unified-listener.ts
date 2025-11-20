@@ -491,15 +491,26 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           const blockPromises = uniqueBlockNumbers.map(async (blockNumber) => {
             try {
               const block = await client.getBlock({ blockNumber });
-              blockTimestamps.set(blockNumber, new Date(Number(block.timestamp) * 1000));
+              const timestamp = new Date(Number(block.timestamp) * 1000);
+              blockTimestamps.set(blockNumber, timestamp);
             } catch (error) {
-              console.warn(`⚠️  Error obteniendo timestamp del bloque ${blockNumber}:`, error);
-              // Usar fecha actual como fallback
-              blockTimestamps.set(blockNumber, new Date());
+              console.error(`⚠️  Error obteniendo timestamp del bloque ${blockNumber}:`, error);
+              // Usar fecha actual como fallback (esto indica un problema)
+              const fallbackDate = new Date();
+              blockTimestamps.set(blockNumber, fallbackDate);
+              console.warn(`⚠️  Usando fecha fallback (NOW) para bloque ${blockNumber}: ${fallbackDate.toISOString()}`);
             }
           });
           
           await Promise.all(blockPromises);
+          
+          // Log resumen de timestamps obtenidos (solo si hay eventos)
+          if (uniqueBlockNumbers.length > 0 && validLogs.length > 0) {
+            const timestamps = Array.from(blockTimestamps.values());
+            const minTimestamp = new Date(Math.min(...timestamps.map(d => d.getTime())));
+            const maxTimestamp = new Date(Math.max(...timestamps.map(d => d.getTime())));
+            console.log(`📅 Timestamps obtenidos: ${blockTimestamps.size}/${uniqueBlockNumbers.length} bloques | Rango: ${minTimestamp.toISOString()} - ${maxTimestamp.toISOString()}`);
+          }
 
           // Procesar logs (solo los que tienen blockNumber)
     for (const log of validLogs) {
@@ -512,8 +523,12 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           const event = contract.decoder(log);
           if (event) {
             // Obtener timestamp del bloque para este evento
-            const blockTimestamp = blockTimestamps.get(log.blockNumber!) || new Date();
-            await contract.processor(event, contract.address, blockTimestamp);
+            const blockTimestamp = blockTimestamps.get(log.blockNumber!);
+            if (!blockTimestamp) {
+              console.error(`❌ ERROR: No se encontró timestamp para bloque ${log.blockNumber}, usando fecha actual como fallback`);
+            }
+            const finalTimestamp = blockTimestamp || new Date();
+            await contract.processor(event, contract.address, finalTimestamp);
                   const state = contractStates.find((s) => s.address === contract.address)!;
             state.eventsProcessed++;
                   batchEvents++;
