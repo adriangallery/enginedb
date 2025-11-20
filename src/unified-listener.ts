@@ -187,10 +187,12 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   const client = createViemClient();
 
   // Detectar modo fallback (solo forward, más lento)
-  const useFallback = process.env.USE_FALLBACK_RPC === 'true';
+  // Si no hay RPC_URL_BASE configurado, usar fallback automáticamente
+  const useFallback = process.env.USE_FALLBACK_RPC === 'true' || !process.env.RPC_URL_BASE;
+  // Bloque de inicio para fallback (hardcoded, valor público)
   const fallbackStartBlock = process.env.FALLBACK_START_BLOCK
     ? BigInt(process.env.FALLBACK_START_BLOCK)
-    : null;
+    : 38293582n; // Bloque de inicio por defecto (público)
 
   if (useFallback) {
     console.log('🔄 Modo Fallback RPC - Solo Forward (sin histórico)');

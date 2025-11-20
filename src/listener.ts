@@ -66,15 +66,18 @@ export function createViemClient() {
   let rpcUrl: string;
   
   if (useFallback) {
-    // Usar RPC fallback (público o configurado)
+    // Usar RPC fallback público de Base (hardcoded, es público)
     rpcUrl = process.env.FALLBACK_RPC_URL || 'https://mainnet.base.org';
     console.log('🔄 Modo Fallback RPC activado (solo forward, más lento)');
-    console.log(`📍 Usando RPC: ${rpcUrl}`);
+    console.log(`📍 Usando RPC público: ${rpcUrl}`);
   } else {
     // Usar RPC principal (Alchemy)
     rpcUrl = process.env.RPC_URL_BASE;
     if (!rpcUrl) {
-      throw new Error('Falta la variable de entorno RPC_URL_BASE');
+      // Si no hay RPC_URL_BASE, usar fallback automáticamente
+      rpcUrl = 'https://mainnet.base.org';
+      console.log('⚠️  RPC_URL_BASE no configurado, usando RPC público por defecto');
+      console.log(`📍 Usando RPC: ${rpcUrl}`);
     }
   }
 
