@@ -135,6 +135,9 @@ interface ContractSyncState {
 /**
  * Procesar un rango de bloques con retry logic
  */
+// Variable global para detectar si Alchemy está agotado
+let alchemyExhausted = false;
+
 async function processBlockRange(
   client: ReturnType<typeof createViemClient>,
   addresses: string[],
@@ -151,10 +154,18 @@ async function processBlockRange(
       });
       return logs;
     } catch (error: any) {
-      // Detectar errores 429 (Too Many Requests) y usar backoff más largo
+      // Detectar errores 429 (Too Many Requests) - Alchemy agotado
       const isRateLimit = error?.status === 429 || 
                          error?.message?.includes('429') ||
-                         error?.details?.includes('Too Many Requests');
+                         error?.details?.includes('Too Many Requests') ||
+                         error?.details?.includes('Monthly capacity limit exceeded');
+      
+      // Si es error 429 de Alchemy, marcar como agotado
+      if (isRateLimit && error?.url?.includes('alchemy.com')) {
+        alchemyExhausted = true;
+        console.error('🚨 Alchemy límite mensual agotado - Cambiando a modo fallback automáticamente');
+        console.error('💡 Para activar manualmente: USE_FALLBACK_RPC=true');
+      }
       
       if (attempt === retries) {
         console.error(`❌ Error después de ${retries} intentos:`, error.message);
@@ -184,11 +195,33 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   duration: number;
 }> {
   const startTime = Date.now();
-  const client = createViemClient();
+  
+  // Si Alchemy está agotado, recrear cliente con fallback
+  let client = createViemClient();
+  
+  // Intentar obtener bloque actual, si falla con 429, cambiar a fallback
+  try {
+    await client.getBlockNumber();
+  } catch (error: any) {
+    const isRateLimit = error?.status === 429 || 
+                       error?.message?.includes('429') ||
+                       error?.details?.includes('Monthly capacity limit exceeded');
+    if (isRateLimit && error?.url?.includes('alchemy.com')) {
+      alchemyExhausted = true;
+      console.error('🚨 Alchemy agotado detectado al inicio - Cambiando a modo fallback');
+      // Forzar modo fallback recreando cliente
+      process.env.USE_FALLBACK_RPC = 'true';
+      client = createViemClient();
+    } else {
+      throw error;
+    }
+  }
 
   // Detectar modo fallback (solo forward, más lento)
-  // Si no hay RPC_URL_BASE configurado, usar fallback automáticamente
-  const useFallback = process.env.USE_FALLBACK_RPC === 'true' || !process.env.RPC_URL_BASE;
+  // Si no hay RPC_URL_BASE configurado o Alchemy está agotado, usar fallback automáticamente
+  const useFallback = process.env.USE_FALLBACK_RPC === 'true' || 
+                      !process.env.RPC_URL_BASE || 
+                      alchemyExhausted;
   // Bloque de inicio para fallback (hardcoded, valor público)
   const fallbackStartBlock = process.env.FALLBACK_START_BLOCK
     ? BigInt(process.env.FALLBACK_START_BLOCK)
@@ -407,13 +440,20 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
                   batchEvents++;
                   totalEventsProcessed++;
                 }
-              } catch (error) {
+              } catch (error: any) {
+                // Log detallado del error para debugging
                 console.error(
                   `${contract.color} [${contract.name}] Error procesando evento:`,
-                  error
+                  error?.message || error
                 );
+                // No lanzar error, continuar con otros eventos
               }
             }
+          }
+          
+          // Log si hay logs pero no se procesaron eventos
+          if (allLogs.length > 0 && batchEvents === 0) {
+            console.warn(`  ⚠️  Se encontraron ${allLogs.length} logs pero no se procesaron eventos`);
           }
 
           // Actualizar estados forward
