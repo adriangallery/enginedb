@@ -29,7 +29,8 @@ import { bigintToString } from '../contracts/types/adrian-traits-core-events.js'
  */
 async function processTransferSingleEvent(
   event: TransferSingleEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -43,6 +44,7 @@ async function processTransferSingleEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {
@@ -63,7 +65,8 @@ async function processTransferSingleEvent(
  */
 async function processTransferBatchEvent(
   event: TransferBatchEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -77,6 +80,7 @@ async function processTransferBatchEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {
@@ -97,7 +101,8 @@ async function processTransferBatchEvent(
  */
 async function processApprovalForAllEvent(
   event: ApprovalForAllEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -109,6 +114,7 @@ async function processApprovalForAllEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {
@@ -129,7 +135,8 @@ async function processApprovalForAllEvent(
  */
 async function processURIEvent(
   event: URIEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -140,6 +147,7 @@ async function processURIEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {
@@ -247,6 +255,7 @@ async function processCustomEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {
@@ -267,23 +276,24 @@ async function processCustomEvent(
  */
 export async function processERC1155Event(
   event: AdrianTraitsCoreEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   switch (event.eventName) {
     case 'TransferSingle':
-      await processTransferSingleEvent(event, contractAddress);
+      await processTransferSingleEvent(event, contractAddress, blockTimestamp);
       break;
     case 'TransferBatch':
-      await processTransferBatchEvent(event, contractAddress);
+      await processTransferBatchEvent(event, contractAddress, blockTimestamp);
       break;
     case 'ApprovalForAll':
-      await processApprovalForAllEvent(event, contractAddress);
+      await processApprovalForAllEvent(event, contractAddress, blockTimestamp);
       break;
     case 'URI':
-      await processURIEvent(event, contractAddress);
+      await processURIEvent(event, contractAddress, blockTimestamp);
       break;
     default:
-      await processCustomEvent(event, contractAddress);
+      await processCustomEvent(event, contractAddress, blockTimestamp);
       break;
   }
 }

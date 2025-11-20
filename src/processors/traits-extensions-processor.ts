@@ -12,7 +12,8 @@ import { bigintToString } from '../contracts/types/adrian-traits-extensions-even
  */
 export async function processTraitsExtensionsEvent(
   event: AdrianTraitsExtensionsEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -77,6 +78,7 @@ export async function processTraitsExtensionsEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {

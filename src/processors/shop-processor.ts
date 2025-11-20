@@ -12,7 +12,8 @@ import { bigintToString } from '../contracts/types/adrian-shop-events.js';
  */
 export async function processShopEvent(
   event: AdrianShopEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -118,6 +119,7 @@ export async function processShopEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {

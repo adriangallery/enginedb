@@ -38,7 +38,8 @@ import { bigintToString } from '../contracts/types/adrian-lab-core-events.js';
  */
 async function processTransferEvent(
   event: TransferEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -50,6 +51,7 @@ async function processTransferEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {
@@ -70,7 +72,8 @@ async function processTransferEvent(
  */
 async function processApprovalEvent(
   event: ApprovalEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -82,6 +85,7 @@ async function processApprovalEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {
@@ -102,7 +106,8 @@ async function processApprovalEvent(
  */
 async function processApprovalForAllEvent(
   event: ApprovalForAllEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -114,6 +119,7 @@ async function processApprovalForAllEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {
@@ -155,7 +161,8 @@ async function processCustomEvent(
     | FunctionImplementationUpdatedEvent
     | ProceedsWithdrawnEvent
     | FirstModificationEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   const supabase = getSupabaseClient();
 
@@ -293,6 +300,7 @@ async function processCustomEvent(
     tx_hash: event.txHash,
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
+    created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
   if (error) {
@@ -313,17 +321,18 @@ async function processCustomEvent(
  */
 export async function processERC721Event(
   event: AdrianLabCoreEvent,
-  contractAddress: string
+  contractAddress: string,
+  blockTimestamp?: Date
 ): Promise<void> {
   switch (event.eventName) {
     case 'Transfer':
-      await processTransferEvent(event, contractAddress);
+      await processTransferEvent(event, contractAddress, blockTimestamp);
       break;
     case 'Approval':
-      await processApprovalEvent(event, contractAddress);
+      await processApprovalEvent(event, contractAddress, blockTimestamp);
       break;
     case 'ApprovalForAll':
-      await processApprovalForAllEvent(event, contractAddress);
+      await processApprovalForAllEvent(event, contractAddress, blockTimestamp);
       break;
     case 'TokenMinted':
     case 'TokenBurnt':
@@ -346,7 +355,7 @@ export async function processERC721Event(
     case 'FunctionImplementationUpdated':
     case 'ProceedsWithdrawn':
     case 'FirstModification':
-      await processCustomEvent(event, contractAddress);
+      await processCustomEvent(event, contractAddress, blockTimestamp);
       break;
     default:
       console.warn(
