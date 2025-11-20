@@ -544,20 +544,28 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
       }
     }
 
-    // Guardar progreso periódicamente
-    if (batchCounter % SAVE_PROGRESS_INTERVAL === 0 || batchEvents > 0) {
-      for (const state of contractStates) {
-        await updateLastSyncedBlockByContract(
-          state.address,
-          Number(state.lastSyncedBlock)
-        );
-        await updateLastHistoricalBlockByContract(
-          state.address,
-          Number(state.lastHistoricalBlock)
-        );
-      }
-      if (batchEvents > 0) {
-        console.log(`  💾 Progreso guardado`);
+    // Guardar progreso periódicamente (cada batch o cada SAVE_PROGRESS_INTERVAL)
+    // Guardar siempre al final de cada batch para no perder progreso
+    const shouldSave = batchCounter % SAVE_PROGRESS_INTERVAL === 0 || batchEvents > 0 || batchCounter > 0;
+    
+    if (shouldSave) {
+      try {
+        for (const state of contractStates) {
+          await updateLastSyncedBlockByContract(
+            state.address,
+            Number(state.lastSyncedBlock)
+          );
+          if (state.lastHistoricalBlock !== null) {
+            await updateLastHistoricalBlockByContract(
+              state.address,
+              Number(state.lastHistoricalBlock)
+            );
+          }
+        }
+        console.log(`  💾 Progreso guardado (Batch ${batchCounter})`);
+      } catch (error) {
+        console.error('  ❌ Error al guardar progreso:', error);
+        // No lanzar error, continuar procesando
       }
     }
 
@@ -580,7 +588,26 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     }
   }
 
-  // 4. Determinar si hay más trabajo pendiente
+  // 4. Guardar progreso final antes de terminar
+  try {
+    for (const state of contractStates) {
+      await updateLastSyncedBlockByContract(
+        state.address,
+        Number(state.lastSyncedBlock)
+      );
+      if (state.lastHistoricalBlock !== null) {
+        await updateLastHistoricalBlockByContract(
+          state.address,
+          Number(state.lastHistoricalBlock)
+        );
+      }
+    }
+    console.log('  💾 Progreso final guardado');
+  } catch (error) {
+    console.error('  ❌ Error al guardar progreso final:', error);
+  }
+
+  // 5. Determinar si hay más trabajo pendiente
   const hasMore = contractStates.some(
     (s) => s.hasMoreForward || s.hasMoreBackward
   );
