@@ -10,7 +10,8 @@
     "build": "tsc",
     "start": "node dist/src/continuous-listener.js",
     "start:once": "node dist/src/index.js",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "fix-timestamps": "tsx scripts/fix-event-timestamps.ts"
   },
   "keywords": [
     "ethereum",
