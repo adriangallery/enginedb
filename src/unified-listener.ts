@@ -40,14 +40,8 @@ const BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
   ? BigInt(process.env.BLOCKS_PER_BATCH)
   : 10n; // Bloques por batch
 
-// Número de requests paralelos para procesar múltiples rangos simultáneamente
-// Para histórico: usar valores más altos (5-10) para acelerar
-// Para tiempo real: 3-5 es suficiente
-// Nota: Alchemy Free tier tiene límites de rate, usar con moderación
-// En modo fallback (RPC público), usar menos paralelismo
-const PARALLEL_REQUESTS = process.env.PARALLEL_REQUESTS
-  ? parseInt(process.env.PARALLEL_REQUESTS)
-  : (process.env.USE_FALLBACK_RPC === 'true' ? 2 : 5); // Default: 2 en fallback, 5 en modo normal
+// Número de requests paralelos - se define dentro de syncAllContracts basado en el modo
+// Valores optimizados: 20 en normal, 10 en fallback (para procesar ~75k bloques/día)
 
 const SAVE_PROGRESS_INTERVAL = 50; // Guardar progreso cada N batches
 
