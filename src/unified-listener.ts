@@ -221,12 +221,51 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     ? BigInt(process.env.FALLBACK_START_BLOCK)
     : 38293582n; // Bloque de inicio por defecto (público)
 
-  // Aumentar paralelismo para procesar ~75k bloques/día
-  // Con 20 paralelos * 10 bloques = 200 bloques por ciclo
-  // Con delay de 500ms entre ciclos = ~400 bloques/segundo = ~34M bloques/día (más que suficiente)
+  // Paralelismo adaptativo según backlog
+  // Calcular backlog promedio de todos los contratos
+  let totalBacklog = 0n;
+  let contractCount = 0;
+  
+  // Primero obtener el bloque actual para calcular backlog
+  const currentBlock = await client.getBlockNumber();
+  
+  for (const contract of CONTRACT_REGISTRY) {
+    const lastSynced = BigInt(await getLastSyncedBlockByContract(contract.address));
+    if (lastSynced < currentBlock) {
+      totalBacklog += currentBlock - lastSynced;
+      contractCount++;
+    }
+  }
+  
+  const avgBacklog = contractCount > 0 ? totalBacklog / BigInt(contractCount) : 0n;
+  
+  // Velocidad adaptativa según backlog:
+  // - >1000 bloques: Alta velocidad (20 paralelos) - Necesitamos ponernos al día rápido
+  // - 100-1000 bloques: Velocidad media (10 paralelos) - Backlog moderado
+  // - <100 bloques: Velocidad baja (5 paralelos) - Casi al día, no sobrecargar
+  let adaptiveParallelism: number;
+  let adaptiveDelay: number;
+  
+  if (avgBacklog > 1000n) {
+    adaptiveParallelism = useFallback ? 10 : 20; // Alta velocidad
+    adaptiveDelay = useFallback ? 1000 : 500; // Delay corto
+    console.log(`⚡ Modo: Alta velocidad (backlog: ~${avgBacklog} bloques)`);
+  } else if (avgBacklog > 100n) {
+    adaptiveParallelism = useFallback ? 5 : 10; // Velocidad media
+    adaptiveDelay = useFallback ? 1500 : 1000; // Delay medio
+    console.log(`⚡ Modo: Velocidad media (backlog: ~${avgBacklog} bloques)`);
+  } else {
+    adaptiveParallelism = useFallback ? 2 : 5; // Velocidad baja
+    adaptiveDelay = useFallback ? 2000 : 2000; // Delay largo para no sobrecargar
+    console.log(`⚡ Modo: Velocidad baja (backlog: ~${avgBacklog} bloques) - Casi al día`);
+  }
+  
   const PARALLEL_REQUESTS = process.env.PARALLEL_REQUESTS
     ? parseInt(process.env.PARALLEL_REQUESTS)
-    : useFallback ? 10 : 20; // Default: 10 en fallback, 20 en modo normal (alta capacidad)
+    : adaptiveParallelism;
+
+  // TEMPORALMENTE: Deshabilitar backward sync
+  const DISABLE_BACKWARD = true; // Cambiar a false cuando queramos habilitar backward
 
   if (useFallback) {
     console.log('🔄 Modo Fallback RPC - Solo Forward (sin histórico)');
@@ -241,7 +280,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
   // 1. Obtener estado de sincronización de cada contrato
   const contractStates: ContractSyncState[] = [];
-  const currentBlock = await client.getBlockNumber();
+  // currentBlock ya se obtuvo arriba para calcular backlog
   
   for (const contract of CONTRACT_REGISTRY) {
     let lastSyncedBlock = BigInt(
@@ -302,8 +341,6 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     
     const forwardStartBlock = lastSyncedBlock + 1n;
     
-    // TEMPORALMENTE: Deshabilitar backward
-    const DISABLE_BACKWARD = true;
     // En modo fallback o si backward está deshabilitado, no hay backward sync
     const backwardStartBlock = (useFallback || DISABLE_BACKWARD) ? null : (lastHistoricalBlock ? BigInt(lastHistoricalBlock) - 1n : null);
 
@@ -330,8 +367,6 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   );
 
   // 2. Verificar si hay trabajo pendiente
-  // TEMPORALMENTE: Solo forward, deshabilitar backward
-  const DISABLE_BACKWARD = true; // Cambiar a false cuando queramos habilitar backward
   let hasForwardWork = contractStates.some((s) => s.hasMoreForward);
   let hasBackwardWork = (useFallback || DISABLE_BACKWARD) ? false : contractStates.some((s) => s.hasMoreBackward);
 
@@ -346,8 +381,6 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   }
 
   console.log('');
-  // TEMPORALMENTE: Solo forward, deshabilitar backward
-  const DISABLE_BACKWARD = true;
   
   if (useFallback || DISABLE_BACKWARD) {
     console.log(`📦 Modo: Solo Forward${DISABLE_BACKWARD ? ' (Backward deshabilitado temporalmente)' : ' (Fallback RPC)'}`);
@@ -649,11 +682,32 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     hasForwardWork = contractStates.some((s) => s.hasMoreForward);
     hasBackwardWork = contractStates.some((s) => s.hasMoreBackward);
 
-    // Pausa entre batches para evitar rate limiting
-    // Reducir delays para mayor velocidad: 500ms en normal, 1s en fallback
+    // Pausa entre batches adaptativa según backlog
+    // Usar delay adaptativo calculado arriba
     if (hasForwardWork || hasBackwardWork) {
-      const delay = useFallback ? 1000 : 500; // 1 segundo en fallback, 500ms en normal (más rápido)
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await new Promise((resolve) => setTimeout(resolve, adaptiveDelay));
+    }
+    
+    // Recalcular backlog periódicamente para ajustar velocidad
+    if (batchCounter % 10 === 0) {
+      let newTotalBacklog = 0n;
+      let newContractCount = 0;
+      const newCurrentBlock = await client.getBlockNumber();
+      
+      for (const state of contractStates) {
+        if (state.lastSyncedBlock < newCurrentBlock) {
+          newTotalBacklog += newCurrentBlock - state.lastSyncedBlock;
+          newContractCount++;
+        }
+      }
+      
+      const newAvgBacklog = newContractCount > 0 ? newTotalBacklog / BigInt(newContractCount) : 0n;
+      
+      // Ajustar velocidad si el backlog cambió significativamente
+      if (newAvgBacklog > avgBacklog + 500n || newAvgBacklog < avgBacklog - 500n) {
+        console.log(`📊 Backlog actualizado: ~${newAvgBacklog} bloques (antes: ~${avgBacklog})`);
+        // Nota: El paralelismo se ajustará en la próxima ejecución de syncAllContracts
+      }
     }
   }
 
