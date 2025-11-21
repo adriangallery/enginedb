@@ -292,6 +292,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   const DISABLE_BACKWARD = false; // Backward sync habilitado
   
   // En modo fallback, limitar backward sync a 1 de cada 5 veces para no sobrecargar el RPC público
+  // Esto permite procesar histórico gradualmente sin saturar el RPC público de Base
   const FALLBACK_BACKWARD_RATIO = 5; // Solo 1 de cada 5 batches será backward en fallback
 
   if (useFallback) {
