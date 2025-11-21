@@ -269,8 +269,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     ? parseInt(process.env.PARALLEL_REQUESTS)
     : adaptiveParallelism;
 
-  // TEMPORALMENTE: Deshabilitar backward sync
-  const DISABLE_BACKWARD = true; // Cambiar a false cuando queramos habilitar backward
+  // Backward sync activado - Procesa histórico hacia atrás mientras mantiene forward
+  const DISABLE_BACKWARD = false; // Backward sync habilitado
 
   if (useFallback) {
     console.log('🔄 Modo Fallback RPC - Solo Forward (sin histórico)');

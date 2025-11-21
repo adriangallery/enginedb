@@ -228,8 +228,72 @@ ORDER BY block_number DESC;
 
 ### 3. **FloorEngine - Marketplace**
 
+#### `active_punk_listings` ⭐ **VISTA RECOMENDADA PARA FRONTEND**
+Vista simplificada que muestra solo los punks actualmente a la venta. Se actualiza automáticamente.
+
+```sql
+-- Obtener todos los punks a la venta (más simple y rápido)
+SELECT * FROM active_punk_listings
+ORDER BY price_adrian_wei ASC;
+
+-- Filtrar solo punks del engine
+SELECT * FROM active_punk_listings
+WHERE is_engine_owned = true
+ORDER BY price_adrian_wei ASC;
+
+-- Filtrar solo punks de usuarios
+SELECT * FROM active_punk_listings
+WHERE is_engine_owned = false
+ORDER BY price_adrian_wei ASC;
+
+-- Buscar un punk específico
+SELECT * FROM active_punk_listings
+WHERE token_id = 123;
+
+-- Obtener el floor price (precio más bajo)
+SELECT MIN(price_adrian_wei) as floor_price
+FROM active_punk_listings;
+```
+
+**Campos de la vista:**
+- `token_id`: ID del punk (BIGINT)
+- `price_adrian_wei`: Precio en $ADRIAN (wei) - NUMERIC
+- `is_engine_owned`: Si es del engine (true) o de un usuario (false) - BOOLEAN
+- `seller`: Dirección del vendedor (TEXT) - opcional
+- `last_event`: Último evento (TEXT) - opcional
+- `last_block_number`: Número del último bloque (BIGINT) - opcional
+- `updated_at`: Última actualización (TIMESTAMPTZ) - opcional
+
+**Ventajas de usar esta vista:**
+- ✅ Filtra automáticamente punks vendidos, cancelados o que ya no están listados
+- ✅ Solo muestra los campos necesarios para el frontend
+- ✅ Se actualiza automáticamente cuando cambian los datos
+- ✅ Más rápida que consultar `punk_listings` con filtros
+
+**Ejemplo de uso en JavaScript/TypeScript:**
+```typescript
+// Con Supabase Client
+const { data, error } = await supabase
+  .from('active_punk_listings')
+  .select('token_id, price_adrian_wei, is_engine_owned')
+  .order('price_adrian_wei', { ascending: true });
+
+// Con fetch directo
+const response = await fetch(
+  `${SUPABASE_URL}/rest/v1/active_punk_listings?select=token_id,price_adrian_wei,is_engine_owned&order=price_adrian_wei.asc`,
+  {
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+    }
+  }
+);
+```
+
+---
+
 #### `punk_listings`
-Estado actual de listings por tokenId (vista en tiempo real).
+Estado actual de listings por tokenId (vista en tiempo real). Usa `active_punk_listings` si solo necesitas punks a la venta.
 
 ```sql
 -- Ver todos los listings activos
