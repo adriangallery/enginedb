@@ -1,6 +1,6 @@
 /**
  * Configuración del contrato AdrianNameRegistry
- * Address: [ACTUALIZAR CON LA DIRECCIÓN REAL]
+ * Address: 0xaeC5ED33c88c1943BB7452aC4B571ad0b4c4068C
  * Red: Base Mainnet (Chain ID: 8453)
  */
 
@@ -14,8 +14,7 @@ export const ADRIAN_NAME_REGISTRY_CONFIG: ContractConfig = {
   name: 'AdrianNameRegistry',
   type: 'custom',
   // Start block: Bloque de deployment del contrato
-  // ⚠️ ACTUALIZAR CON EL BLOQUE DE DEPLOYMENT REAL (obtener de Basescan)
-  startBlock: 0n, // ⚠️ ACTUALIZAR con el bloque de deployment
+  // Deployment block: 26367738 (mismo que ERC20)
+  startBlock: 26367738n,
   enabled: true,
 };
-

@@ -1,6 +1,6 @@
 /**
  * Configuración del contrato PunkQuest
- * Address: [ACTUALIZAR CON LA DIRECCIÓN REAL]
+ * Address: 0xaF22843e195B792A3f874562ab7CEE751066665E
  * Red: Base Mainnet (Chain ID: 8453)
  */
 
@@ -14,8 +14,7 @@ export const PUNK_QUEST_CONFIG: ContractConfig = {
   name: 'PunkQuest',
   type: 'custom',
   // Start block: Bloque de deployment del contrato
-  // ⚠️ ACTUALIZAR CON EL BLOQUE DE DEPLOYMENT REAL (obtener de Basescan)
-  startBlock: 0n, // ⚠️ ACTUALIZAR con el bloque de deployment
+  // Deployment block: 26367738 (mismo que ERC20)
+  startBlock: 26367738n,
   enabled: true,
 };
-
