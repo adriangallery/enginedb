@@ -22,6 +22,9 @@ import { ADRIAN_LAB_CORE_CONFIG } from './contracts/config/adrian-lab-core.js';
 import { ADRIAN_TRAITS_CORE_CONFIG } from './contracts/config/adrian-traits-core.js';
 import { ADRIAN_TRAITS_EXTENSIONS_CONFIG } from './contracts/config/adrian-traits-extensions.js';
 import { ADRIAN_SHOP_CONFIG } from './contracts/config/adrian-shop.js';
+import { ADRIAN_NAME_REGISTRY_CONFIG } from './contracts/config/adrian-name-registry.js';
+import { ADRIAN_SERUM_MODULE_CONFIG } from './contracts/config/adrian-serum-module.js';
+import { PUNK_QUEST_CONFIG } from './contracts/config/punk-quest.js';
 
 // Decoders de eventos
 import { decodeLog as decodeERC20Log } from './listeners/erc20/adrian-token-listener.js';
@@ -29,11 +32,17 @@ import { decodeLog as decodeERC721Log } from './listeners/erc721/adrian-lab-core
 import { decodeLog as decodeERC1155Log } from './listeners/erc1155/adrian-traits-core-listener.js';
 import { decodeLog as decodeTraitsExtensionsLog } from './listeners/custom/adrian-traits-extensions-listener.js';
 import { decodeLog as decodeShopLog } from './listeners/custom/adrian-shop-listener.js';
+import { decodeLog as decodeNameRegistryLog } from './listeners/custom/adrian-name-registry-listener.js';
+import { decodeLog as decodeSerumModuleLog } from './listeners/custom/adrian-serum-module-listener.js';
+import { decodeLog as decodePunkQuestLog } from './listeners/custom/punk-quest-listener.js';
 
 // Procesadores
 import { processERC1155Event } from './processors/erc1155-processor.js';
 import { processTraitsExtensionsEvent } from './processors/traits-extensions-processor.js';
 import { processShopEvent } from './processors/shop-processor.js';
+import { processNameRegistryEvent } from './processors/name-registry-processor.js';
+import { processSerumModuleEvent } from './processors/serum-module-processor.js';
+import { processPunkQuestEvent } from './processors/punk-quest-processor.js';
 
 // Configuración
 const BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
@@ -109,6 +118,30 @@ const CONTRACT_REGISTRY: ContractDefinition[] = [
     decoder: decodeShopLog,
     processor: processShopEvent,
     color: '🛒',
+  },
+  {
+    name: 'AdrianNameRegistry',
+    address: ADRIAN_NAME_REGISTRY_CONFIG.address,
+    startBlock: ADRIAN_NAME_REGISTRY_CONFIG.startBlock || 0n,
+    decoder: decodeNameRegistryLog,
+    processor: processNameRegistryEvent,
+    color: '📝',
+  },
+  {
+    name: 'AdrianSerumModule',
+    address: ADRIAN_SERUM_MODULE_CONFIG.address,
+    startBlock: ADRIAN_SERUM_MODULE_CONFIG.startBlock || 0n,
+    decoder: decodeSerumModuleLog,
+    processor: processSerumModuleEvent,
+    color: '🧪',
+  },
+  {
+    name: 'PunkQuest',
+    address: PUNK_QUEST_CONFIG.address,
+    startBlock: PUNK_QUEST_CONFIG.startBlock || 0n,
+    decoder: decodePunkQuestLog,
+    processor: processPunkQuestEvent,
+    color: '⚔️',
   },
 ];
 

@@ -12,7 +12,10 @@ Este documento contiene todas las consultas y ejemplos de código para obtener e
 4. [🔵 ERC1155 - Traits, Packs, Serums](#-erc1155---traits-packs-serums)
 5. [🟠 TraitsExtensions](#-traitsextensions)
 6. [🛒 AdrianShop](#-adrianshop)
-7. [🔗 Estadísticas Combinadas](#-estadísticas-combinadas)
+7. [📝 AdrianNameRegistry](#-adriannameregistry)
+8. [🧪 AdrianSerumModule](#-adrianserummodule)
+9. [⚔️ PunkQuest](#-punkquest)
+10. [🔗 Estadísticas Combinadas](#-estadísticas-combinadas)
 
 ---
 
@@ -870,6 +873,476 @@ export function useMarketplaceStats() {
 
   return { stats, loading, error };
 }
+```
+
+---
+
+## 📝 AdrianNameRegistry
+
+### Tablas Disponibles
+
+| Tabla | Descripción | Campos Principales |
+|-------|-------------|-------------------|
+| `name_registry_events` | Histórico de cambios de nombres | `token_id`, `new_name`, `setter`, `paid`, `price_wei`, `created_at` |
+| `name_registry_config_events` | Eventos de configuración | `event_type`, `old_price_wei`, `new_price_wei`, `old_treasury`, `new_treasury`, `created_at` |
+
+### Estadísticas Principales
+
+#### 1. Estadísticas de Nombres
+
+```sql
+-- Total de nombres asignados
+SELECT COUNT(*) as total_names FROM name_registry_events;
+
+-- Nombres únicos por token
+SELECT COUNT(DISTINCT token_id) as tokens_with_names FROM name_registry_events;
+
+-- Nombres pagados vs gratuitos
+SELECT 
+  paid,
+  COUNT(*) as count,
+  COUNT(DISTINCT token_id) as unique_tokens
+FROM name_registry_events
+GROUP BY paid;
+
+-- Top usuarios que más nombres han asignado
+SELECT 
+  setter,
+  COUNT(*) as names_set,
+  COUNT(DISTINCT token_id) as unique_tokens
+FROM name_registry_events
+GROUP BY setter
+ORDER BY names_set DESC
+LIMIT 10;
+
+-- Ingresos totales por nombres (suma de precios pagados)
+SELECT SUM(price_wei::numeric) as total_revenue_wei 
+FROM name_registry_events 
+WHERE paid = true AND price_wei IS NOT NULL;
+```
+
+**Ejemplo TypeScript:**
+```typescript
+interface NameRegistryStats {
+  totalNames: number;
+  tokensWithNames: number;
+  paidNames: number;
+  freeNames: number;
+  totalRevenue: string;
+  topSetters: Array<{ address: string; count: number }>;
+}
+
+async function getNameRegistryStats(contractAddress: string): Promise<NameRegistryStats> {
+  const { data: events } = await supabase
+    .from('name_registry_events')
+    .select('token_id, setter, paid, price_wei')
+    .eq('contract_address', contractAddress.toLowerCase());
+
+  if (!events) return defaultStats();
+
+  const paidNames = events.filter(e => e.paid).length;
+  const freeNames = events.length - paidNames;
+  const totalRevenue = events
+    .filter(e => e.paid && e.price_wei)
+    .reduce((sum, e) => sum + BigInt(e.price_wei), 0n);
+
+  const setterCounts = events.reduce((acc, e) => {
+    acc[e.setter] = (acc[e.setter] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const topSetters = Object.entries(setterCounts)
+    .map(([address, count]) => ({ address, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  return {
+    totalNames: events.length,
+    tokensWithNames: new Set(events.map(e => e.token_id)).size,
+    paidNames,
+    freeNames,
+    totalRevenue: totalRevenue.toString(),
+    topSetters,
+  };
+}
+```
+
+#### 2. Historial de Nombres por Token
+
+```sql
+-- Obtener historial completo de nombres para un token
+SELECT 
+  new_name,
+  setter,
+  paid,
+  price_wei,
+  created_at
+FROM name_registry_events
+WHERE token_id = 123
+ORDER BY created_at DESC;
+```
+
+#### 3. Estadísticas de Configuración
+
+```sql
+-- Historial de cambios de precio
+SELECT 
+  old_price_wei,
+  new_price_wei,
+  created_at
+FROM name_registry_config_events
+WHERE event_type = 'PriceUpdated'
+ORDER BY created_at DESC;
+
+-- Historial de cambios de treasury
+SELECT 
+  old_treasury,
+  new_treasury,
+  created_at
+FROM name_registry_config_events
+WHERE event_type = 'TreasuryUpdated'
+ORDER BY created_at DESC;
+```
+
+---
+
+## 🧪 AdrianSerumModule
+
+### Tablas Disponibles
+
+| Tabla | Descripción | Campos Principales |
+|-------|-------------|-------------------|
+| `serum_module_events` | Histórico de aplicaciones de serums | `user_address`, `token_id`, `serum_id`, `success`, `mutation`, `created_at` |
+
+### Estadísticas Principales
+
+#### 1. Estadísticas de Aplicaciones de Serums
+
+```sql
+-- Total de aplicaciones
+SELECT COUNT(*) as total_applications FROM serum_module_events;
+
+-- Tasa de éxito
+SELECT 
+  success,
+  COUNT(*) as count,
+  ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM serum_module_events), 2) as percentage
+FROM serum_module_events
+GROUP BY success;
+
+-- Aplicaciones por serum
+SELECT 
+  serum_id,
+  COUNT(*) as total_applications,
+  SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful,
+  ROUND(SUM(CASE WHEN success THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) as success_rate
+FROM serum_module_events
+GROUP BY serum_id
+ORDER BY total_applications DESC;
+
+-- Top usuarios que más serums han usado
+SELECT 
+  user_address,
+  COUNT(*) as total_applications,
+  SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful
+FROM serum_module_events
+GROUP BY user_address
+ORDER BY total_applications DESC
+LIMIT 10;
+
+-- Tokens con más aplicaciones
+SELECT 
+  token_id,
+  COUNT(*) as total_applications,
+  SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful
+FROM serum_module_events
+GROUP BY token_id
+ORDER BY total_applications DESC
+LIMIT 10;
+```
+
+**Ejemplo TypeScript:**
+```typescript
+interface SerumModuleStats {
+  totalApplications: number;
+  successRate: number;
+  totalSuccessful: number;
+  totalFailed: number;
+  topSerums: Array<{ serumId: number; applications: number; successRate: number }>;
+  topUsers: Array<{ address: string; applications: number; successful: number }>;
+}
+
+async function getSerumModuleStats(contractAddress: string): Promise<SerumModuleStats> {
+  const { data: events } = await supabase
+    .from('serum_module_events')
+    .select('serum_id, user_address, success')
+    .eq('contract_address', contractAddress.toLowerCase());
+
+  if (!events) return defaultStats();
+
+  const totalSuccessful = events.filter(e => e.success).length;
+  const totalFailed = events.length - totalSuccessful;
+  const successRate = events.length > 0 
+    ? (totalSuccessful / events.length) * 100 
+    : 0;
+
+  const serumStats = events.reduce((acc, e) => {
+    if (!acc[e.serum_id]) {
+      acc[e.serum_id] = { total: 0, successful: 0 };
+    }
+    acc[e.serum_id].total++;
+    if (e.success) acc[e.serum_id].successful++;
+    return acc;
+  }, {} as Record<number, { total: number; successful: number }>);
+
+  const topSerums = Object.entries(serumStats)
+    .map(([serumId, stats]) => ({
+      serumId: parseInt(serumId),
+      applications: stats.total,
+      successRate: (stats.successful / stats.total) * 100,
+    }))
+    .sort((a, b) => b.applications - a.applications)
+    .slice(0, 10);
+
+  const userStats = events.reduce((acc, e) => {
+    if (!acc[e.user_address]) {
+      acc[e.user_address] = { total: 0, successful: 0 };
+    }
+    acc[e.user_address].total++;
+    if (e.success) acc[e.user_address].successful++;
+    return acc;
+  }, {} as Record<string, { total: number; successful: number }>);
+
+  const topUsers = Object.entries(userStats)
+    .map(([address, stats]) => ({
+      address,
+      applications: stats.total,
+      successful: stats.successful,
+    }))
+    .sort((a, b) => b.applications - a.applications)
+    .slice(0, 10);
+
+  return {
+    totalApplications: events.length,
+    successRate,
+    totalSuccessful,
+    totalFailed,
+    topSerums,
+    topUsers,
+  };
+}
+```
+
+#### 2. Historial de Aplicaciones por Token
+
+```sql
+-- Obtener todas las aplicaciones de serums para un token
+SELECT 
+  serum_id,
+  success,
+  mutation,
+  created_at
+FROM serum_module_events
+WHERE token_id = 123
+ORDER BY created_at DESC;
+```
+
+---
+
+## ⚔️ PunkQuest
+
+### Tablas Disponibles
+
+| Tabla | Descripción | Campos Principales |
+|-------|-------------|-------------------|
+| `punk_quest_staking_events` | Eventos de staking | `event_type`, `user_address`, `token_id`, `reward_wei`, `bonus_added`, `timestamp`, `created_at` |
+| `punk_quest_item_events` | Eventos de items | `event_type`, `user_address`, `token_id`, `item_id`, `item_type`, `quantity`, `price_wei`, `bonus`, `durability`, `created_at` |
+| `punk_quest_event_events` | Eventos de quests | `event_type`, `operator_address`, `token_id`, `event_id`, `event_name`, `adjustment`, `description`, `degrade_amount`, `created_at` |
+
+### Estadísticas Principales
+
+#### 1. Estadísticas de Staking
+
+```sql
+-- Total de stakes
+SELECT COUNT(*) as total_stakes 
+FROM punk_quest_staking_events 
+WHERE event_type = 'Staked';
+
+-- Total de unstakes
+SELECT COUNT(*) as total_unstakes 
+FROM punk_quest_staking_events 
+WHERE event_type = 'Unstaked';
+
+-- Tokens actualmente staked (staked pero no unstaked)
+SELECT 
+  token_id,
+  MAX(CASE WHEN event_type = 'Staked' THEN created_at END) as staked_at,
+  MAX(CASE WHEN event_type = 'Unstaked' THEN created_at END) as unstaked_at
+FROM punk_quest_staking_events
+GROUP BY token_id
+HAVING MAX(CASE WHEN event_type = 'Staked' THEN created_at END) > 
+       COALESCE(MAX(CASE WHEN event_type = 'Unstaked' THEN created_at END), '1970-01-01'::timestamp);
+
+-- Total de recompensas reclamadas
+SELECT 
+  SUM(reward_wei::numeric) as total_rewards_wei,
+  COUNT(*) as total_claims
+FROM punk_quest_staking_events
+WHERE event_type = 'RewardClaimed' AND reward_wei IS NOT NULL;
+
+-- Top usuarios por recompensas reclamadas
+SELECT 
+  user_address,
+  COUNT(*) as claims,
+  SUM(reward_wei::numeric) as total_rewards_wei
+FROM punk_quest_staking_events
+WHERE event_type = 'RewardClaimed' AND reward_wei IS NOT NULL
+GROUP BY user_address
+ORDER BY total_rewards_wei DESC
+LIMIT 10;
+```
+
+**Ejemplo TypeScript:**
+```typescript
+interface PunkQuestStakingStats {
+  totalStakes: number;
+  totalUnstakes: number;
+  currentlyStaked: number;
+  totalRewardsClaimed: string;
+  totalClaims: number;
+  topRewardEarners: Array<{ address: string; rewards: string; claims: number }>;
+}
+
+async function getPunkQuestStakingStats(contractAddress: string): Promise<PunkQuestStakingStats> {
+  const { data: events } = await supabase
+    .from('punk_quest_staking_events')
+    .select('event_type, user_address, token_id, reward_wei')
+    .eq('contract_address', contractAddress.toLowerCase());
+
+  if (!events) return defaultStats();
+
+  const stakes = events.filter(e => e.event_type === 'Staked');
+  const unstakes = events.filter(e => e.event_type === 'Unstaked');
+  const claims = events.filter(e => e.event_type === 'RewardClaimed' && e.reward_wei);
+
+  // Calcular tokens actualmente staked
+  const stakedTokens = new Set(stakes.map(e => e.token_id));
+  const unstakedTokens = new Set(unstakes.map(e => e.token_id));
+  const currentlyStaked = Array.from(stakedTokens).filter(
+    tokenId => !unstakedTokens.has(tokenId)
+  ).length;
+
+  const totalRewards = claims.reduce(
+    (sum, e) => sum + BigInt(e.reward_wei || '0'),
+    0n
+  );
+
+  const userRewards = claims.reduce((acc, e) => {
+    if (!acc[e.user_address]) {
+      acc[e.user_address] = { rewards: 0n, claims: 0 };
+    }
+    acc[e.user_address].rewards += BigInt(e.reward_wei || '0');
+    acc[e.user_address].claims++;
+    return acc;
+  }, {} as Record<string, { rewards: bigint; claims: number }>);
+
+  const topRewardEarners = Object.entries(userRewards)
+    .map(([address, stats]) => ({
+      address,
+      rewards: stats.rewards.toString(),
+      claims: stats.claims,
+    }))
+    .sort((a, b) => {
+      const aRewards = BigInt(a.rewards);
+      const bRewards = BigInt(b.rewards);
+      return aRewards > bRewards ? -1 : aRewards < bRewards ? 1 : 0;
+    })
+    .slice(0, 10);
+
+  return {
+    totalStakes: stakes.length,
+    totalUnstakes: unstakes.length,
+    currentlyStaked,
+    totalRewardsClaimed: totalRewards.toString(),
+    totalClaims: claims.length,
+    topRewardEarners,
+  };
+}
+```
+
+#### 2. Estadísticas de Items
+
+```sql
+-- Total de items comprados
+SELECT 
+  COUNT(*) as total_purchases,
+  SUM(quantity::bigint) as total_items_purchased
+FROM punk_quest_item_events
+WHERE event_type = 'ItemPurchasedInStore';
+
+-- Items más comprados
+SELECT 
+  item_id,
+  SUM(quantity::bigint) as total_purchased,
+  COUNT(*) as purchase_count
+FROM punk_quest_item_events
+WHERE event_type = 'ItemPurchasedInStore'
+GROUP BY item_id
+ORDER BY total_purchased DESC
+LIMIT 10;
+
+-- Items más equipados
+SELECT 
+  item_id,
+  COUNT(*) as equip_count,
+  COUNT(DISTINCT token_id) as unique_tokens
+FROM punk_quest_item_events
+WHERE event_type = 'ItemEquipped'
+GROUP BY item_id
+ORDER BY equip_count DESC
+LIMIT 10;
+
+-- Ingresos totales por venta de items
+SELECT 
+  SUM(price_wei::numeric * quantity::bigint) as total_revenue_wei
+FROM punk_quest_item_events
+WHERE event_type = 'ItemPurchasedInStore' 
+  AND price_wei IS NOT NULL 
+  AND quantity IS NOT NULL;
+```
+
+#### 3. Estadísticas de Quests
+
+```sql
+-- Total de eventos triggerados
+SELECT 
+  event_type,
+  COUNT(*) as count
+FROM punk_quest_event_events
+WHERE event_type IN ('EventTriggered', 'AdvancedEventTriggered')
+GROUP BY event_type;
+
+-- Eventos más comunes
+SELECT 
+  event_name,
+  COUNT(*) as trigger_count,
+  COUNT(DISTINCT token_id) as affected_tokens
+FROM punk_quest_event_events
+WHERE event_type IN ('EventTriggered', 'AdvancedEventTriggered')
+GROUP BY event_name
+ORDER BY trigger_count DESC
+LIMIT 10;
+
+-- Tokens con más eventos
+SELECT 
+  token_id,
+  COUNT(*) as event_count
+FROM punk_quest_event_events
+WHERE event_type IN ('EventTriggered', 'AdvancedEventTriggered')
+GROUP BY token_id
+ORDER BY event_count DESC
+LIMIT 10;
 ```
 
 ---
