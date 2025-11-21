@@ -216,6 +216,25 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   const useFallback = process.env.USE_FALLBACK_RPC === 'true' || 
                       !process.env.RPC_URL_BASE || 
                       alchemyExhausted;
+  
+  // Mostrar información de la API key de Alchemy (parcialmente oculta por seguridad)
+  if (process.env.RPC_URL_BASE) {
+    const rpcUrl = process.env.RPC_URL_BASE;
+    if (rpcUrl.includes('alchemy.com')) {
+      // Extraer y mostrar parcialmente la API key
+      const match = rpcUrl.match(/\/v2\/([^\/\?]+)/);
+      if (match) {
+        const apiKey = match[1];
+        const maskedKey = apiKey.length > 8 
+          ? `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}`
+          : '***';
+        console.log(`🔑 Alchemy API Key configurada: ${maskedKey}`);
+        console.log(`📍 URL completa: ${rpcUrl.replace(/\/v2\/[^\/\?]+/, '/v2/***')}`);
+      }
+    } else {
+      console.log(`📍 RPC URL configurada: ${rpcUrl}`);
+    }
+  }
   // Bloque de inicio para fallback (hardcoded, valor público)
   const fallbackStartBlock = process.env.FALLBACK_START_BLOCK
     ? BigInt(process.env.FALLBACK_START_BLOCK)
@@ -271,6 +290,9 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
   // Backward sync activado - Procesa histórico hacia atrás mientras mantiene forward
   const DISABLE_BACKWARD = false; // Backward sync habilitado
+  
+  // En modo fallback, limitar backward sync a 1 de cada 5 veces para no sobrecargar el RPC público
+  const FALLBACK_BACKWARD_RATIO = 5; // Solo 1 de cada 5 batches será backward en fallback
 
   if (useFallback) {
     console.log('🔄 Modo Fallback RPC - Solo Forward (sin histórico)');
@@ -297,10 +319,16 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     // Bloque de inicio objetivo (38293582)
     const targetStartBlock = fallbackStartBlock || 38293582n;
     
-    // En modo fallback, deshabilitar backward sync
+    // En modo fallback, permitir backward limitado (1 de cada 5 veces)
     if (useFallback) {
-      // No procesar histórico en modo fallback
-      lastHistoricalBlock = null;
+      // Inicializar lastHistoricalBlock si es null para permitir backward limitado
+      if (lastHistoricalBlock === null) {
+        lastHistoricalBlock = Number(currentBlock);
+        await updateLastHistoricalBlockByContract(
+          contract.address,
+          lastHistoricalBlock
+        );
+      }
       
       // Si no tiene registro forward O si está muy atrás del bloque objetivo, resetear
       if (lastSyncedBlock === 0n || lastSyncedBlock < targetStartBlock) {
@@ -311,6 +339,16 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           Number(initialBlock)
         );
         lastSyncedBlock = initialBlock;
+      }
+      
+      // Si lastHistoricalBlock está muy adelante del bloque objetivo, resetear también
+      if (lastHistoricalBlock !== null && BigInt(lastHistoricalBlock) > targetStartBlock) {
+        console.log(`${contract.color} [${contract.name}] Resetear backward: ${lastHistoricalBlock} → ${targetStartBlock}`);
+        lastHistoricalBlock = Number(targetStartBlock);
+        await updateLastHistoricalBlockByContract(
+          contract.address,
+          lastHistoricalBlock
+        );
       }
     } else {
       // Modo normal: inicializar lastHistoricalBlock con el bloque actual si es null
@@ -346,8 +384,18 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     
     const forwardStartBlock = lastSyncedBlock + 1n;
     
-    // En modo fallback o si backward está deshabilitado, no hay backward sync
-    const backwardStartBlock = (useFallback || DISABLE_BACKWARD) ? null : (lastHistoricalBlock ? BigInt(lastHistoricalBlock) - 1n : null);
+    // En modo fallback, permitir backward pero limitado (1 de cada 5 veces)
+    // Si backward está deshabilitado completamente, no hay backward sync
+    let backwardStartBlock: bigint | null = null;
+    if (!DISABLE_BACKWARD) {
+      if (useFallback) {
+        // En fallback, permitir backward pero será limitado por el contador más abajo
+        backwardStartBlock = lastHistoricalBlock ? BigInt(lastHistoricalBlock) - 1n : null;
+      } else {
+        // Modo normal con Alchemy, backward sin restricciones
+        backwardStartBlock = lastHistoricalBlock ? BigInt(lastHistoricalBlock) - 1n : null;
+      }
+    }
 
     contractStates.push({
       name: contract.name,
@@ -357,7 +405,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
       startBlock: contract.startBlock,
       eventsProcessed: 0,
       hasMoreForward: forwardStartBlock <= currentBlock,
-      hasMoreBackward: (useFallback || DISABLE_BACKWARD) ? false : (backwardStartBlock !== null && backwardStartBlock >= contract.startBlock),
+      hasMoreBackward: DISABLE_BACKWARD ? false : (backwardStartBlock !== null && backwardStartBlock >= contract.startBlock),
     });
 
     console.log(
@@ -373,7 +421,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
   // 2. Verificar si hay trabajo pendiente
   let hasForwardWork = contractStates.some((s) => s.hasMoreForward);
-  let hasBackwardWork = (useFallback || DISABLE_BACKWARD) ? false : contractStates.some((s) => s.hasMoreBackward);
+  let hasBackwardWork = DISABLE_BACKWARD ? false : contractStates.some((s) => s.hasMoreBackward);
 
   if (!hasForwardWork && !hasBackwardWork) {
     console.log('✅ Todos los contratos están completamente sincronizados');
@@ -387,13 +435,15 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
   console.log('');
   
-  if (useFallback || DISABLE_BACKWARD) {
-    console.log(`📦 Modo: Solo Forward${DISABLE_BACKWARD ? ' (Backward deshabilitado temporalmente)' : ' (Fallback RPC)'}`);
+  if (DISABLE_BACKWARD) {
+    console.log(`📦 Modo: Solo Forward (Backward deshabilitado)`);
     console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
     console.log(`🚀 Paralelismo: ${PARALLEL_REQUESTS} requests simultáneos (${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo)`);
-    if (useFallback) {
-      console.log(`⚠️  Nota: Modo más lento, solo sincroniza hacia adelante`);
-    }
+  } else if (useFallback) {
+    console.log(`📦 Modo: Intercalado Limitado (Forward ↔ Backward 1:${FALLBACK_BACKWARD_RATIO})`);
+    console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
+    console.log(`🚀 Paralelismo: ${PARALLEL_REQUESTS} requests simultáneos (${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo)`);
+    console.log(`⚠️  Nota: Backward limitado a 1 de cada ${FALLBACK_BACKWARD_RATIO} batches en modo fallback`);
   } else {
     console.log(`📦 Modo: Intercalado (Forward ↔ Backward)`);
     console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
@@ -401,20 +451,60 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   }
   console.log('');
 
-  // 3. Procesar en modo forward solamente (backward deshabilitado temporalmente)
+  // 3. Procesar con alternancia forward/backward (limitado en fallback)
   let totalEventsProcessed = 0;
   let batchCounter = 0;
-  let isForwardMode = true; // Solo forward por ahora
+  let isForwardMode = true;
+  let backwardCounter = 0; // Contador para limitar backward en fallback
 
-  // Procesar solo forward (backward deshabilitado)
+  // Procesar con alternancia forward/backward
   while ((hasForwardWork || hasBackwardWork) && (!maxBatches || batchCounter < maxBatches)) {
-    // Forzar solo forward (backward deshabilitado)
-    if (!isForwardMode || (useFallback || DISABLE_BACKWARD)) {
+    // Lógica de alternancia: en fallback, backward solo 1 de cada 5 veces
+    if (DISABLE_BACKWARD) {
+      // Backward completamente deshabilitado
       isForwardMode = true;
+    } else if (!hasForwardWork && hasBackwardWork) {
+      // Solo hay trabajo backward
+      if (useFallback) {
+        // En fallback, limitar frecuencia de backward
+        backwardCounter++;
+        if (backwardCounter % FALLBACK_BACKWARD_RATIO !== 0) {
+          // Saltar este batch backward
+          isForwardMode = true;
+          console.log(`  ⏭️  Backward limitado en fallback (${backwardCounter}/${FALLBACK_BACKWARD_RATIO}), saltando este batch`);
+        } else {
+          isForwardMode = false;
+        }
+      } else {
+        // Modo normal, procesar backward
+        isForwardMode = false;
+      }
+    } else if (hasForwardWork && !hasBackwardWork) {
+      // Solo hay trabajo forward, procesarlo
+      isForwardMode = true;
+    } else if (hasForwardWork && hasBackwardWork) {
+      // Hay ambos trabajos, decidir según modo
+      if (useFallback) {
+        // En fallback, priorizar forward (4 de cada 5 veces)
+        backwardCounter++;
+        isForwardMode = backwardCounter % FALLBACK_BACKWARD_RATIO !== 0;
+        if (!isForwardMode) {
+          console.log(`  ✅ Backward permitido en fallback (${backwardCounter}/${FALLBACK_BACKWARD_RATIO})`);
+        }
+      } else {
+        // Modo normal, alternar normalmente
+        isForwardMode = !isForwardMode;
+      }
     }
     
     const mode = isForwardMode ? 'FORWARD' : 'BACKWARD';
-    console.log(`\n🔄 Batch ${batchCounter + 1} - Modo: ${mode}${DISABLE_BACKWARD ? ' (Backward deshabilitado)' : ''}`);
+    let modeNote = '';
+    if (DISABLE_BACKWARD) {
+      modeNote = ' (Backward deshabilitado)';
+    } else if (useFallback && !isForwardMode) {
+      modeNote = ` (Backward limitado en fallback: ${backwardCounter}/${FALLBACK_BACKWARD_RATIO})`;
+    }
+    console.log(`\n🔄 Batch ${batchCounter + 1} - Modo: ${mode}${modeNote}`);
 
     let batchEvents = 0;
 
