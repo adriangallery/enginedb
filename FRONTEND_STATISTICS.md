@@ -9,13 +9,14 @@ Este documento contiene todas las consultas y ejemplos de código para obtener e
 1. [🔷 FloorEngine - Marketplace](#-floorengine---marketplace)
 2. [🟡 ERC20 - $ADRIAN Token](#-erc20---adrian-token)
 3. [🟣 ERC721 - AdrianZERO NFTs](#-erc721---adrianzero-nfts)
-4. [🔵 ERC1155 - Traits, Packs, Serums](#-erc1155---traits-packs-serums)
-5. [🟠 TraitsExtensions](#-traitsextensions)
-6. [🛒 AdrianShop](#-adrianshop)
-7. [📝 AdrianNameRegistry](#-adriannameregistry)
-8. [🧪 AdrianSerumModule](#-adrianserummodule)
-9. [⚔️ PunkQuest](#-punkquest)
-10. [🔗 Estadísticas Combinadas](#-estadísticas-combinadas)
+4. [🟥 ERC721 - AdrianPunks](#-erc721---adrianpunks)
+5. [🔵 ERC1155 - Traits, Packs, Serums](#-erc1155---traits-packs-serums)
+6. [🟠 TraitsExtensions](#-traitsextensions)
+7. [🛒 AdrianShop](#-adrianshop)
+8. [📝 AdrianNameRegistry](#-adriannameregistry)
+9. [🧪 AdrianSerumModule](#-adrianserummodule)
+10. [⚔️ PunkQuest](#-punkquest)
+11. [🔗 Estadísticas Combinadas](#-estadísticas-combinadas)
 
 ---
 
@@ -598,6 +599,260 @@ FROM latest_owners
 GROUP BY owner
 ORDER BY token_count DESC
 LIMIT 20;
+```
+
+---
+
+## 🟥 ERC721 - AdrianPunks
+
+### Tablas Disponibles
+
+| Tabla | Descripción | Campos Principales |
+|-------|-------------|-------------------|
+| `erc721_transfers` | Transfers de NFTs | `from_address`, `to_address`, `token_id`, `created_at` |
+| `erc721_approvals` | Aprobaciones de tokens | `owner`, `approved`, `token_id`, `created_at` |
+| `erc721_approvals_for_all` | Aprobaciones globales | `owner`, `operator`, `approved`, `created_at` |
+
+**Dirección del contrato:** `0x79be8acdd339c7b92918fcc3fd3875b5aaad7566`
+
+### Estadísticas Principales
+
+#### 1. Estadísticas Generales
+
+```sql
+-- Total de mints (desde address cero)
+SELECT COUNT(*) as total_minted
+FROM erc721_transfers
+WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+  AND from_address = '0x0000000000000000000000000000000000000000';
+
+-- Total de burns (hacia address cero)
+SELECT COUNT(*) as total_burned
+FROM erc721_transfers
+WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+  AND to_address = '0x0000000000000000000000000000000000000000';
+
+-- Total supply actual (minted - burned)
+WITH minted AS (
+  SELECT COUNT(*) as count
+  FROM erc721_transfers
+  WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+    AND from_address = '0x0000000000000000000000000000000000000000'
+),
+burned AS (
+  SELECT COUNT(*) as count
+  FROM erc721_transfers
+  WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+    AND to_address = '0x0000000000000000000000000000000000000000'
+)
+SELECT 
+  (SELECT count FROM minted) - (SELECT count FROM burned) as total_supply;
+
+-- Total de holders únicos (direcciones que han recibido tokens)
+SELECT COUNT(DISTINCT to_address) as total_holders
+FROM erc721_transfers
+WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+  AND to_address != '0x0000000000000000000000000000000000000000';
+```
+
+#### 2. Estadísticas de Transfers
+
+```sql
+-- Total de transfers
+SELECT COUNT(*) as total_transfers
+FROM erc721_transfers
+WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566';
+
+-- Transfers en las últimas 24 horas
+SELECT COUNT(*) as transfers_24h
+FROM erc721_transfers
+WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+  AND created_at >= NOW() - INTERVAL '24 hours';
+
+-- Transfers por día (últimos 30 días)
+SELECT 
+  DATE(created_at) as date,
+  COUNT(*) as transfer_count
+FROM erc721_transfers
+WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+  AND created_at >= NOW() - INTERVAL '30 days'
+GROUP BY DATE(created_at)
+ORDER BY date DESC;
+```
+
+#### 3. Estadísticas de Holders
+
+```sql
+-- Top holders (direcciones con más tokens actualmente)
+WITH balances AS (
+  SELECT 
+    to_address as address,
+    COUNT(*) as received
+  FROM erc721_transfers
+  WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+    AND to_address != '0x0000000000000000000000000000000000000000'
+  GROUP BY to_address
+),
+sent AS (
+  SELECT 
+    from_address as address,
+    COUNT(*) as sent_count
+  FROM erc721_transfers
+  WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+    AND from_address != '0x0000000000000000000000000000000000000000'
+  GROUP BY from_address
+)
+SELECT 
+  COALESCE(b.address, s.address) as holder_address,
+  COALESCE(b.received, 0) - COALESCE(s.sent_count, 0) as token_count
+FROM balances b
+FULL OUTER JOIN sent s ON b.address = s.address
+WHERE COALESCE(b.received, 0) - COALESCE(s.sent_count, 0) > 0
+ORDER BY token_count DESC
+LIMIT 20;
+
+-- Holders únicos que han recibido tokens (excluyendo mints)
+SELECT COUNT(DISTINCT to_address) as unique_holders
+FROM erc721_transfers
+WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+  AND from_address != '0x0000000000000000000000000000000000000000'
+  AND to_address != '0x0000000000000000000000000000000000000000';
+```
+
+#### 4. Estadísticas de un Token Específico
+
+```sql
+-- Historial completo de un token
+SELECT 
+  from_address,
+  to_address,
+  tx_hash,
+  block_number,
+  created_at
+FROM erc721_transfers
+WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+  AND token_id = '123'  -- Reemplazar con el token_id deseado
+ORDER BY created_at ASC;
+
+-- Owner actual de un token
+WITH token_history AS (
+  SELECT 
+    from_address,
+    to_address,
+    created_at,
+    ROW_NUMBER() OVER (ORDER BY created_at DESC) as rn
+  FROM erc721_transfers
+  WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+    AND token_id = '123'  -- Reemplazar con el token_id deseado
+)
+SELECT to_address as current_owner
+FROM token_history
+WHERE rn = 1;
+```
+
+#### 5. Estadísticas de Aprobaciones
+
+```sql
+-- Total de aprobaciones
+SELECT COUNT(*) as total_approvals
+FROM erc721_approvals
+WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566';
+
+-- Aprobaciones globales (ApprovalForAll)
+SELECT 
+  owner,
+  operator,
+  approved,
+  created_at
+FROM erc721_approvals_for_all
+WHERE contract_address = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566'
+ORDER BY created_at DESC
+LIMIT 50;
+```
+
+### Ejemplos de Código TypeScript/JavaScript
+
+#### Obtener Estadísticas Generales
+
+```typescript
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const ADRIAN_PUNKS_ADDRESS = '0x79be8acdd339c7b92918fcc3fd3875b5aaad7566';
+
+async function getAdrianPunksStats() {
+  // Total supply
+  const { data: minted } = await supabase
+    .from('erc721_transfers')
+    .select('*', { count: 'exact', head: true })
+    .eq('contract_address', ADRIAN_PUNKS_ADDRESS)
+    .eq('from_address', '0x0000000000000000000000000000000000000000');
+
+  const { data: burned } = await supabase
+    .from('erc721_transfers')
+    .select('*', { count: 'exact', head: true })
+    .eq('contract_address', ADRIAN_PUNKS_ADDRESS)
+    .eq('to_address', '0x0000000000000000000000000000000000000000');
+
+  const totalSupply = (minted?.count || 0) - (burned?.count || 0);
+
+  // Total holders
+  const { data: holders } = await supabase
+    .from('erc721_transfers')
+    .select('to_address')
+    .eq('contract_address', ADRIAN_PUNKS_ADDRESS)
+    .neq('to_address', '0x0000000000000000000000000000000000000000');
+
+  const uniqueHolders = new Set(holders?.map(h => h.to_address) || []).size;
+
+  // Transfers 24h
+  const yesterday = new Date();
+  yesterday.setHours(yesterday.getHours() - 24);
+  const { data: transfers24h } = await supabase
+    .from('erc721_transfers')
+    .select('*', { count: 'exact', head: true })
+    .eq('contract_address', ADRIAN_PUNKS_ADDRESS)
+    .gte('created_at', yesterday.toISOString());
+
+  return {
+    totalSupply,
+    totalHolders: uniqueHolders,
+    transfers24h: transfers24h?.count || 0,
+  };
+}
+```
+
+#### Obtener Owner Actual de un Token
+
+```typescript
+async function getTokenOwner(tokenId: string) {
+  const { data, error } = await supabase
+    .from('erc721_transfers')
+    .select('to_address, created_at')
+    .eq('contract_address', ADRIAN_PUNKS_ADDRESS)
+    .eq('token_id', tokenId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error || !data) return null;
+  return data.to_address;
+}
+```
+
+#### Obtener Historial de un Token
+
+```typescript
+async function getTokenHistory(tokenId: string) {
+  const { data, error } = await supabase
+    .from('erc721_transfers')
+    .select('from_address, to_address, tx_hash, block_number, created_at')
+    .eq('contract_address', ADRIAN_PUNKS_ADDRESS)
+    .eq('token_id', tokenId)
+    .order('created_at', { ascending: true });
+
+  return data || [];
+}
 ```
 
 ---

@@ -25,6 +25,7 @@ import { ADRIAN_SHOP_CONFIG } from './contracts/config/adrian-shop.js';
 import { ADRIAN_NAME_REGISTRY_CONFIG } from './contracts/config/adrian-name-registry.js';
 import { ADRIAN_SERUM_MODULE_CONFIG } from './contracts/config/adrian-serum-module.js';
 import { PUNK_QUEST_CONFIG } from './contracts/config/punk-quest.js';
+import { ADRIAN_PUNKS_CONFIG } from './contracts/config/adrian-punks.js';
 
 // Decoders de eventos
 import { decodeLog as decodeERC20Log } from './listeners/erc20/adrian-token-listener.js';
@@ -142,6 +143,14 @@ const CONTRACT_REGISTRY: ContractDefinition[] = [
     decoder: decodePunkQuestLog,
     processor: processPunkQuestEvent,
     color: '⚔️',
+  },
+  {
+    name: 'AdrianPunks',
+    address: ADRIAN_PUNKS_CONFIG.address,
+    startBlock: ADRIAN_PUNKS_CONFIG.startBlock || 0n,
+    decoder: decodeERC721Log,
+    processor: processERC721Event,
+    color: '🟥',
   },
 ];
 
@@ -447,6 +456,62 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     );
   }
 
+  // 1.5. Lógica de Catch-Up: Detectar contratos nuevos y calcular target historical block
+  // Calcular el last_historical_block más avanzado de todos los contratos (target para catch-up)
+  let targetHistoricalBlock: bigint | null = null;
+  for (const state of contractStates) {
+    if (state.lastHistoricalBlock !== null) {
+      if (targetHistoricalBlock === null || state.lastHistoricalBlock < targetHistoricalBlock) {
+        targetHistoricalBlock = state.lastHistoricalBlock;
+      }
+    }
+  }
+
+  // Detectar contratos que necesitan catch-up (lastHistoricalBlock es null o está muy atrás del target)
+  const contractsNeedingCatchUp: string[] = [];
+  if (targetHistoricalBlock !== null && !DISABLE_BACKWARD) {
+    for (const state of contractStates) {
+      const needsCatchUp = state.lastHistoricalBlock === null || 
+                           (state.lastHistoricalBlock !== null && state.lastHistoricalBlock > targetHistoricalBlock!);
+      if (needsCatchUp) {
+        contractsNeedingCatchUp.push(state.address);
+        // Inicializar lastHistoricalBlock al target si es null para comenzar catch-up
+        if (state.lastHistoricalBlock === null) {
+          const contract = CONTRACT_REGISTRY.find(c => c.address === state.address);
+          if (contract) {
+            console.log(`${contract.color} [${contract.name}] 🆕 Contrato nuevo detectado - Iniciando catch-up hasta bloque ${targetHistoricalBlock}`);
+            await updateLastHistoricalBlockByContract(state.address, Number(targetHistoricalBlock));
+            // Actualizar el estado
+            state.lastHistoricalBlock = targetHistoricalBlock;
+            // Recalcular backwardStartBlock
+            const backwardStart = targetHistoricalBlock - 1n;
+            state.hasMoreBackward = backwardStart >= state.startBlock;
+          }
+        } else {
+          const contract = CONTRACT_REGISTRY.find(c => c.address === state.address);
+          const gap = state.lastHistoricalBlock! - targetHistoricalBlock!;
+          if (contract && gap > 0n) {
+            console.log(`${contract.color} [${contract.name}] 📊 Gap detectado: ${gap} bloques - Priorizando catch-up hasta bloque ${targetHistoricalBlock}`);
+            // Actualizar lastHistoricalBlock al target para comenzar catch-up desde ahí
+            await updateLastHistoricalBlockByContract(state.address, Number(targetHistoricalBlock));
+            state.lastHistoricalBlock = targetHistoricalBlock;
+            const backwardStart = targetHistoricalBlock - 1n;
+            state.hasMoreBackward = backwardStart >= state.startBlock;
+          }
+        }
+      }
+    }
+  }
+
+  if (contractsNeedingCatchUp.length > 0) {
+    const catchUpNames = contractsNeedingCatchUp
+      .map(addr => CONTRACT_REGISTRY.find(c => c.address === addr)?.name)
+      .filter(Boolean)
+      .join(', ');
+    console.log(`🚀 Modo Catch-Up activado para: ${catchUpNames}`);
+    console.log(`📍 Target historical block: ${targetHistoricalBlock}`);
+  }
+
   console.log('');
   console.log(`📍 Bloque actual: ${currentBlock}`);
   console.log(
@@ -493,12 +558,26 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
   // Procesar con alternancia forward/backward
   while ((hasForwardWork || hasBackwardWork) && (!maxBatches || batchCounter < maxBatches)) {
-    // Lógica de alternancia: en fallback, backward solo 1 de cada 5 veces
+    // Verificar si hay contratos en catch-up que necesitan backward sync prioritario
+    const catchUpStates = contractStates.filter(
+      (s) => contractsNeedingCatchUp.includes(s.address) && s.hasMoreBackward
+    );
+    const hasCatchUpBackwardWork = catchUpStates.length > 0;
+
+    // Lógica de alternancia: priorizar catch-up, luego normal
     if (DISABLE_BACKWARD) {
       // Backward completamente deshabilitado
       isForwardMode = true;
+    } else if (hasCatchUpBackwardWork) {
+      // Priorizar backward sync para contratos en catch-up
+      isForwardMode = false;
+      const catchUpNames = catchUpStates.map(s => {
+        const contract = CONTRACT_REGISTRY.find(c => c.address === s.address);
+        return contract?.name || s.address;
+      }).join(', ');
+      console.log(`  🚀 Priorizando catch-up backward para: ${catchUpNames}`);
     } else if (!hasForwardWork && hasBackwardWork) {
-      // Solo hay trabajo backward
+      // Solo hay trabajo backward (sin catch-up)
       if (useFallback) {
         // En fallback, limitar frecuencia de backward
         backwardCounter++;
