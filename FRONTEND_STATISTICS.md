@@ -27,10 +27,11 @@ Este documento contiene todas las consultas y ejemplos de código para obtener e
 | Tabla | Descripción | Campos Principales |
 |-------|-------------|-------------------|
 | `active_punk_listings` | Vista de punks a la venta | `token_id`, `price_adrian_wei`, `is_engine_owned` |
-| `punk_listings` | Estado actual de todos los punks | `token_id`, `seller`, `price_wei`, `is_listed`, `is_contract_owned` |
-| `listing_events` | Histórico Listed/Cancelled | `event_type`, `token_id`, `price_wei`, `seller`, `created_at` |
-| `trade_events` | Histórico de compras | `token_id`, `buyer`, `seller`, `price_wei`, `created_at` |
-| `sweep_events` | Histórico de floor sweeps | `token_id`, `buy_price_wei`, `relist_price_wei`, `caller`, `created_at` |
+| `punk_listings` | Estado actual de todos los punks | `token_id`, `seller`, `price_wei`, `is_listed`, `is_contract_owned` ⚠️ **NO usar `updated_at` para fechas de eventos** |
+| `listing_events` | Histórico Listed/Cancelled | `event_type`, `token_id`, `price_wei`, `seller`, `created_at` ✅ **Usar `created_at` para timestamp del bloque** |
+| `trade_events` | Histórico de compras | `token_id`, `buyer`, `seller`, `price_wei`, `created_at` ✅ **Usar `created_at` para timestamp del bloque** |
+| `sweep_events` | Histórico de floor sweeps | `token_id`, `buy_price_wei`, `relist_price_wei`, `caller`, `created_at` ✅ **Usar `created_at` para timestamp del bloque** |
+| `floor_engine_events_unified` | Vista unificada de todos los eventos | `event_type`, `token_id`, `event_timestamp` ✅ **Vista recomendada con timestamps correctos** |
 
 ### Estadísticas Principales
 
@@ -251,6 +252,102 @@ FROM listing_events
 WHERE created_at >= NOW() - INTERVAL '30 days'
 GROUP BY DATE(created_at)
 ORDER BY date DESC;
+```
+
+#### 5. ⚠️ IMPORTANTE: Obtener Eventos Recientes con Timestamps Correctos
+
+**❌ INCORRECTO:** NO usar `punk_listings.updated_at` para fechas de eventos (es la fecha de actualización en BD, no del bloque)
+
+**✅ CORRECTO:** Usar `created_at` de las tablas de eventos o la vista unificada
+
+```sql
+-- Opción 1: Usar la vista unificada (RECOMENDADO)
+SELECT 
+  event_type,
+  token_id,
+  user_address,
+  price_wei,
+  event_timestamp,  -- ✅ Timestamp real del bloque
+  tx_hash,
+  block_number
+FROM floor_engine_events_unified
+ORDER BY event_timestamp DESC
+LIMIT 50;
+
+-- Opción 2: Combinar eventos manualmente
+SELECT 
+  'Listed' as event_type,
+  token_id,
+  seller as user_address,
+  price_wei,
+  created_at as event_timestamp,  -- ✅ Timestamp del bloque
+  tx_hash,
+  block_number
+FROM listing_events
+WHERE event_type = 'Listed'
+
+UNION ALL
+
+SELECT 
+  'Cancelled' as event_type,
+  token_id,
+  seller as user_address,
+  NULL as price_wei,
+  created_at as event_timestamp,  -- ✅ Timestamp del bloque
+  tx_hash,
+  block_number
+FROM listing_events
+WHERE event_type = 'Cancelled'
+
+UNION ALL
+
+SELECT 
+  'Bought' as event_type,
+  token_id,
+  buyer as user_address,
+  price_wei,
+  created_at as event_timestamp,  -- ✅ Timestamp del bloque
+  tx_hash,
+  block_number
+FROM trade_events
+
+UNION ALL
+
+SELECT 
+  'FloorSweep' as event_type,
+  token_id,
+  caller as user_address,
+  relist_price_wei as price_wei,
+  created_at as event_timestamp,  -- ✅ Timestamp del bloque
+  tx_hash,
+  block_number
+FROM sweep_events
+
+ORDER BY event_timestamp DESC
+LIMIT 50;
+```
+
+**Ejemplo TypeScript con la vista unificada:**
+
+```typescript
+async function getRecentFloorEngineEvents(limit = 50) {
+  const { data, error } = await supabase
+    .from('floor_engine_events_unified')
+    .select('*')
+    .order('event_timestamp', { ascending: false })  // ✅ Usar event_timestamp
+    .limit(limit);
+
+  if (error) {
+    console.error('Error:', error);
+    return [];
+  }
+
+  return data?.map(event => ({
+    ...event,
+    event_timestamp: new Date(event.event_timestamp),  // Convertir a Date
+    formatted_date: new Date(event.event_timestamp).toLocaleString('es-ES')
+  })) || [];
+}
 ```
 
 ---
