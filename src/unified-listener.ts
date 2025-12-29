@@ -45,10 +45,10 @@ import { processNameRegistryEvent } from './processors/name-registry-processor.j
 import { processSerumModuleEvent } from './processors/serum-module-processor.js';
 import { processPunkQuestEvent } from './processors/punk-quest-processor.js';
 
-// Configuración
-const BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
+// Configuración base - se ajustará dinámicamente según backlog
+const BASE_BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
   ? BigInt(process.env.BLOCKS_PER_BATCH)
-  : 10n; // Bloques por batch
+  : 10n; // Bloques por batch base
 
 // Número de requests paralelos - se define dentro de syncAllContracts basado en el modo
 // Valores optimizados: 20 en normal, 10 en fallback (para procesar ~75k bloques/día)
@@ -307,31 +307,52 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
   // - <10 bloques: Velocidad baja (2 paralelos) - Casi al día, no sobrecargar
   let adaptiveParallelism: number;
   let adaptiveDelay: number;
+  let adaptiveBlocksPerBatch: bigint;
+  let adaptiveRequestDelay: number; // Delay entre requests paralelos
   
   if (avgBacklog > 1000n) {
     adaptiveParallelism = useFallback ? 10 : 20; // Alta velocidad
-    adaptiveDelay = useFallback ? 1000 : 500; // Delay corto
+    adaptiveDelay = useFallback ? 1000 : 500; // Delay corto entre batches
+    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH; // Mantener batch size base
+    adaptiveRequestDelay = 50; // Delay entre requests paralelos
     console.log(`⚡ Modo: Alta velocidad (backlog: ~${avgBacklog} bloques)`);
   } else if (avgBacklog > 100n) {
     adaptiveParallelism = useFallback ? 5 : 10; // Velocidad media
-    adaptiveDelay = useFallback ? 1500 : 1000; // Delay medio
+    adaptiveDelay = useFallback ? 1500 : 1000; // Delay medio entre batches
+    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH; // Mantener batch size base
+    adaptiveRequestDelay = 50; // Delay entre requests paralelos
     console.log(`⚡ Modo: Velocidad media (backlog: ~${avgBacklog} bloques)`);
   } else if (avgBacklog > 10n) {
     adaptiveParallelism = useFallback ? 3 : 5; // Velocidad normal - suficiente para mantenerse al día
     adaptiveDelay = useFallback ? 1000 : 500; // Delay corto para reducir backlog
+    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH * 2n; // Aumentar batch size para reducir requests
+    adaptiveRequestDelay = 25; // Reducir delay entre requests
     console.log(`⚡ Modo: Velocidad normal (backlog: ~${avgBacklog} bloques) - Manteniendo ritmo`);
   } else {
     adaptiveParallelism = useFallback ? 2 : 5; // Velocidad baja
     adaptiveDelay = useFallback ? 2000 : 2000; // Delay largo para no sobrecargar
+    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH * 3n; // Aumentar batch size significativamente
+    adaptiveRequestDelay = 25; // Delay mínimo entre requests
     console.log(`⚡ Modo: Velocidad baja (backlog: ~${avgBacklog} bloques) - Casi al día`);
   }
+  
+  // BLOCKS_PER_BATCH adaptativo según backlog
+  const BLOCKS_PER_BATCH = adaptiveBlocksPerBatch;
   
   const PARALLEL_REQUESTS = process.env.PARALLEL_REQUESTS
     ? parseInt(process.env.PARALLEL_REQUESTS)
     : adaptiveParallelism;
 
-  // Backward sync activado - Procesa histórico hacia atrás mientras mantiene forward
-  const DISABLE_BACKWARD = false; // Backward sync habilitado
+  // Backward sync - Controlado por variable PAUSE_BACKWARDS
+  // Si es "pause" o "true", deshabilitar backward completamente
+  // Si es "resume" o "false" (o no está definido), habilitar backward
+  const PAUSE_BACKWARDS = process.env.PAUSE_BACKWARDS === 'pause' || 
+                          process.env.PAUSE_BACKWARDS === 'true';
+  
+  if (PAUSE_BACKWARDS) {
+    console.log('⏸️  Backward sync PAUSADO (PAUSE_BACKWARDS=pause)');
+    console.log('💡 Para reactivar: PAUSE_BACKWARDS=resume o PAUSE_BACKWARDS=false');
+  }
   
   // En modo fallback, limitar backward sync a 1 de cada 5 veces para no sobrecargar el RPC público
   // Esto permite procesar histórico gradualmente sin saturar el RPC público de Base
@@ -430,7 +451,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     // En modo fallback, permitir backward pero limitado (1 de cada 5 veces)
     // Si backward está deshabilitado completamente, no hay backward sync
     let backwardStartBlock: bigint | null = null;
-    if (!DISABLE_BACKWARD) {
+    if (!PAUSE_BACKWARDS) {
       if (useFallback) {
         // En fallback, permitir backward pero será limitado por el contador más abajo
         backwardStartBlock = lastHistoricalBlock ? BigInt(lastHistoricalBlock) - 1n : null;
@@ -448,7 +469,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
       startBlock: contract.startBlock,
       eventsProcessed: 0,
       hasMoreForward: forwardStartBlock <= currentBlock,
-      hasMoreBackward: DISABLE_BACKWARD ? false : (backwardStartBlock !== null && backwardStartBlock >= contract.startBlock),
+      hasMoreBackward: PAUSE_BACKWARDS ? false : (backwardStartBlock !== null && backwardStartBlock >= contract.startBlock),
     });
 
     console.log(
@@ -469,7 +490,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
   // Detectar contratos que necesitan catch-up (lastHistoricalBlock es null o está muy atrás del target)
   const contractsNeedingCatchUp: string[] = [];
-  if (targetHistoricalBlock !== null && !DISABLE_BACKWARD) {
+  if (targetHistoricalBlock !== null && !PAUSE_BACKWARDS) {
     for (const state of contractStates) {
       const needsCatchUp = state.lastHistoricalBlock === null || 
                            (state.lastHistoricalBlock !== null && state.lastHistoricalBlock > targetHistoricalBlock!);
@@ -520,7 +541,7 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
   // 2. Verificar si hay trabajo pendiente
   let hasForwardWork = contractStates.some((s) => s.hasMoreForward);
-  let hasBackwardWork = DISABLE_BACKWARD ? false : contractStates.some((s) => s.hasMoreBackward);
+  let hasBackwardWork = PAUSE_BACKWARDS ? false : contractStates.some((s) => s.hasMoreBackward);
 
   if (!hasForwardWork && !hasBackwardWork) {
     console.log('✅ Todos los contratos están completamente sincronizados');
@@ -534,8 +555,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
 
   console.log('');
   
-  if (DISABLE_BACKWARD) {
-    console.log(`📦 Modo: Solo Forward (Backward deshabilitado)`);
+  if (PAUSE_BACKWARDS) {
+    console.log(`📦 Modo: Solo Forward (Backward PAUSADO)`);
     console.log(`⚡ Batch size: ${BLOCKS_PER_BATCH} bloques`);
     console.log(`🚀 Paralelismo: ${PARALLEL_REQUESTS} requests simultáneos (${PARALLEL_REQUESTS * Number(BLOCKS_PER_BATCH)} bloques por ciclo)`);
   } else if (useFallback) {
@@ -565,8 +586,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     const hasCatchUpBackwardWork = catchUpStates.length > 0;
 
     // Lógica de alternancia: priorizar catch-up, luego normal
-    if (DISABLE_BACKWARD) {
-      // Backward completamente deshabilitado
+    if (PAUSE_BACKWARDS) {
+      // Backward completamente pausado
       isForwardMode = true;
     } else if (hasCatchUpBackwardWork) {
       // Priorizar backward sync para contratos en catch-up
@@ -612,8 +633,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     
     const mode = isForwardMode ? 'FORWARD' : 'BACKWARD';
     let modeNote = '';
-    if (DISABLE_BACKWARD) {
-      modeNote = ' (Backward deshabilitado)';
+    if (PAUSE_BACKWARDS) {
+      modeNote = ' (Backward PAUSADO)';
     } else if (useFallback && !isForwardMode) {
       modeNote = ` (Backward limitado en fallback: ${backwardCounter}/${FALLBACK_BACKWARD_RATIO})`;
     }
@@ -669,8 +690,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
             if (fromBlock <= currentBlock) {
               blockRanges.push({ from: fromBlock, to: toBlock });
               // Agregar delay progresivo entre requests para evitar rate limiting
-              // Reducir delay a 50ms para mayor velocidad (antes 100ms)
-              const delay = i * 50;
+              // Delay adaptativo según backlog (25ms cuando backlog es bajo, 50ms cuando es alto)
+              const delay = i * adaptiveRequestDelay;
               parallelPromises.push(
                 (async () => {
                   if (delay > 0) {
@@ -695,29 +716,48 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           const uniqueBlockNumbers = [...new Set(validLogs.map(log => log.blockNumber!))];
           const blockTimestamps = new Map<bigint, Date>();
           
-          // Obtener timestamps de bloques en paralelo (con límite para no sobrecargar)
-          const blockPromises = uniqueBlockNumbers.map(async (blockNumber) => {
-            try {
-              const block = await client.getBlock({ blockNumber });
-              const timestamp = new Date(Number(block.timestamp) * 1000);
-              blockTimestamps.set(blockNumber, timestamp);
-            } catch (error) {
-              console.error(`⚠️  Error obteniendo timestamp del bloque ${blockNumber}:`, error);
-              // Usar fecha actual como fallback (esto indica un problema)
-              const fallbackDate = new Date();
-              blockTimestamps.set(blockNumber, fallbackDate);
-              console.warn(`⚠️  Usando fecha fallback (NOW) para bloque ${blockNumber}: ${fallbackDate.toISOString()}`);
+          // Optimización: Agrupar requests de timestamps en batches para reducir llamadas
+          // Solo obtener timestamps si hay eventos
+          if (uniqueBlockNumbers.length > 0) {
+            const TIMESTAMP_BATCH_SIZE = 50; // Procesar 50 bloques por batch
+            const blockPromises: Promise<void>[] = [];
+            
+            for (let i = 0; i < uniqueBlockNumbers.length; i += TIMESTAMP_BATCH_SIZE) {
+              const batch = uniqueBlockNumbers.slice(i, i + TIMESTAMP_BATCH_SIZE);
+              const batchPromises = batch.map(async (blockNumber) => {
+                try {
+                  const block = await client.getBlock({ blockNumber });
+                  const timestamp = new Date(Number(block.timestamp) * 1000);
+                  blockTimestamps.set(blockNumber, timestamp);
+                } catch (error) {
+                  console.error(`⚠️  Error obteniendo timestamp del bloque ${blockNumber}:`, error);
+                  // Usar fecha actual como fallback (esto indica un problema)
+                  const fallbackDate = new Date();
+                  blockTimestamps.set(blockNumber, fallbackDate);
+                  console.warn(`⚠️  Usando fecha fallback (NOW) para bloque ${blockNumber}: ${fallbackDate.toISOString()}`);
+                }
+              });
+              blockPromises.push(...batchPromises);
+              
+              // Pequeño delay entre batches de timestamps para no sobrecargar
+              if (i + TIMESTAMP_BATCH_SIZE < uniqueBlockNumbers.length) {
+                await Promise.all(batchPromises);
+                await new Promise((resolve) => setTimeout(resolve, 10));
+              }
             }
-          });
-          
-          await Promise.all(blockPromises);
-          
-          // Log resumen de timestamps obtenidos (solo si hay eventos)
-          if (uniqueBlockNumbers.length > 0 && validLogs.length > 0) {
-            const timestamps = Array.from(blockTimestamps.values());
-            const minTimestamp = new Date(Math.min(...timestamps.map(d => d.getTime())));
-            const maxTimestamp = new Date(Math.max(...timestamps.map(d => d.getTime())));
-            console.log(`📅 Timestamps obtenidos: ${blockTimestamps.size}/${uniqueBlockNumbers.length} bloques | Rango: ${minTimestamp.toISOString()} - ${maxTimestamp.toISOString()}`);
+            
+            // Esperar el último batch
+            if (blockPromises.length > 0) {
+              await Promise.all(blockPromises);
+            }
+            
+            // Log resumen de timestamps obtenidos (solo si hay eventos)
+            if (validLogs.length > 0) {
+              const timestamps = Array.from(blockTimestamps.values());
+              const minTimestamp = new Date(Math.min(...timestamps.map(d => d.getTime())));
+              const maxTimestamp = new Date(Math.max(...timestamps.map(d => d.getTime())));
+              console.log(`📅 Timestamps obtenidos: ${blockTimestamps.size}/${uniqueBlockNumbers.length} bloques | Rango: ${minTimestamp.toISOString()} - ${maxTimestamp.toISOString()}`);
+            }
           }
 
           // Procesar logs (solo los que tienen blockNumber)
@@ -821,8 +861,8 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
               if (fromBlock <= toBlock && toBlock >= minStartBlock) {
                 blockRanges.push({ from: fromBlock, to: toBlock });
                 // Agregar delay progresivo entre requests para evitar rate limiting
-                // Reducir delay a 50ms para mayor velocidad (antes 100ms)
-                const delay = i * 50;
+                // Delay adaptativo según backlog (25ms cuando backlog es bajo, 50ms cuando es alto)
+                const delay = i * adaptiveRequestDelay;
                 parallelPromises.push(
                   (async () => {
                     if (delay > 0) {
@@ -847,29 +887,48 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
           const uniqueBlockNumbers = [...new Set(validLogs.map(log => log.blockNumber!))];
           const blockTimestamps = new Map<bigint, Date>();
           
-          // Obtener timestamps de bloques en paralelo (con límite para no sobrecargar)
-          const blockPromises = uniqueBlockNumbers.map(async (blockNumber) => {
-            try {
-              const block = await client.getBlock({ blockNumber });
-              const timestamp = new Date(Number(block.timestamp) * 1000);
-              blockTimestamps.set(blockNumber, timestamp);
-            } catch (error) {
-              console.error(`⚠️  Error obteniendo timestamp del bloque ${blockNumber}:`, error);
-              // Usar fecha actual como fallback (esto indica un problema)
-              const fallbackDate = new Date();
-              blockTimestamps.set(blockNumber, fallbackDate);
-              console.warn(`⚠️  Usando fecha fallback (NOW) para bloque ${blockNumber}: ${fallbackDate.toISOString()}`);
+          // Optimización: Agrupar requests de timestamps en batches para reducir llamadas
+          // Solo obtener timestamps si hay eventos
+          if (uniqueBlockNumbers.length > 0) {
+            const TIMESTAMP_BATCH_SIZE = 50; // Procesar 50 bloques por batch
+            const blockPromises: Promise<void>[] = [];
+            
+            for (let i = 0; i < uniqueBlockNumbers.length; i += TIMESTAMP_BATCH_SIZE) {
+              const batch = uniqueBlockNumbers.slice(i, i + TIMESTAMP_BATCH_SIZE);
+              const batchPromises = batch.map(async (blockNumber) => {
+                try {
+                  const block = await client.getBlock({ blockNumber });
+                  const timestamp = new Date(Number(block.timestamp) * 1000);
+                  blockTimestamps.set(blockNumber, timestamp);
+                } catch (error) {
+                  console.error(`⚠️  Error obteniendo timestamp del bloque ${blockNumber}:`, error);
+                  // Usar fecha actual como fallback (esto indica un problema)
+                  const fallbackDate = new Date();
+                  blockTimestamps.set(blockNumber, fallbackDate);
+                  console.warn(`⚠️  Usando fecha fallback (NOW) para bloque ${blockNumber}: ${fallbackDate.toISOString()}`);
+                }
+              });
+              blockPromises.push(...batchPromises);
+              
+              // Pequeño delay entre batches de timestamps para no sobrecargar
+              if (i + TIMESTAMP_BATCH_SIZE < uniqueBlockNumbers.length) {
+                await Promise.all(batchPromises);
+                await new Promise((resolve) => setTimeout(resolve, 10));
+              }
             }
-          });
-          
-          await Promise.all(blockPromises);
-          
-          // Log resumen de timestamps obtenidos (solo si hay eventos)
-          if (uniqueBlockNumbers.length > 0 && validLogs.length > 0) {
-            const timestamps = Array.from(blockTimestamps.values());
-            const minTimestamp = new Date(Math.min(...timestamps.map(d => d.getTime())));
-            const maxTimestamp = new Date(Math.max(...timestamps.map(d => d.getTime())));
-            console.log(`📅 Timestamps obtenidos: ${blockTimestamps.size}/${uniqueBlockNumbers.length} bloques | Rango: ${minTimestamp.toISOString()} - ${maxTimestamp.toISOString()}`);
+            
+            // Esperar el último batch
+            if (blockPromises.length > 0) {
+              await Promise.all(blockPromises);
+            }
+            
+            // Log resumen de timestamps obtenidos (solo si hay eventos)
+            if (validLogs.length > 0) {
+              const timestamps = Array.from(blockTimestamps.values());
+              const minTimestamp = new Date(Math.min(...timestamps.map(d => d.getTime())));
+              const maxTimestamp = new Date(Math.max(...timestamps.map(d => d.getTime())));
+              console.log(`📅 Timestamps obtenidos: ${blockTimestamps.size}/${uniqueBlockNumbers.length} bloques | Rango: ${minTimestamp.toISOString()} - ${maxTimestamp.toISOString()}`);
+            }
           }
 
           // Procesar logs (solo los que tienen blockNumber)
@@ -971,9 +1030,11 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     }
     
     // Recalcular backlog periódicamente para ajustar velocidad
+    // Cachear currentBlock para evitar llamadas innecesarias
     if (batchCounter % 10 === 0) {
       let newTotalBacklog = 0n;
       let newContractCount = 0;
+      // Solo actualizar currentBlock cada 10 batches para optimizar
       const newCurrentBlock = await client.getBlockNumber();
       
       for (const state of contractStates) {

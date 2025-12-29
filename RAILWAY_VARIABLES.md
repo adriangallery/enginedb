@@ -70,6 +70,13 @@ Haz clic en **"+ New Variable"** y agrega cada una:
 ### `PARALLEL_REQUESTS`
 - **Value**: `2` (para modo fallback, más conservador)
 
+### `PAUSE_BACKWARDS`
+- **Value**: `pause` (por defecto, pausa la sincronización histórica hacia atrás)
+- **Valores posibles**:
+  - `pause` o `true`: Pausa la sincronización histórica (backwards)
+  - `resume` o `false`: Activa la sincronización histórica
+- **Nota**: Por defecto está en `pause` para reducir consumo de Alchemy. Cambia a `resume` cuando quieras procesar el histórico.
+
 ---
 
 ## ✅ Verificar que Funcionan
