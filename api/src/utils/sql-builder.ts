@@ -99,6 +99,10 @@ export function buildCountQuery(table: string, queryParams: QueryParams): SQLQue
 export function buildInsertQuery(table: string, data: Record<string, any>): SQLQuery {
   const columns = Object.keys(data);
   const values = Object.values(data).map(v => {
+    // Convertir bigint a string (SQLite no acepta bigint directamente)
+    if (typeof v === 'bigint') {
+      return v.toString();
+    }
     // Convertir objetos a JSON string
     if (typeof v === 'object' && v !== null) {
       return JSON.stringify(v);
@@ -125,7 +129,14 @@ export function buildUpdateQuery(table: string, data: Record<string, any>, query
   // SET clause
   const setClause = Object.entries(data)
     .map(([key, value]) => {
-      params.push(typeof value === 'object' && value !== null ? JSON.stringify(value) : value);
+      // Convertir bigint a string
+      if (typeof value === 'bigint') {
+        params.push(value.toString());
+      } else if (typeof value === 'object' && value !== null) {
+        params.push(JSON.stringify(value));
+      } else {
+        params.push(value);
+      }
       return `${sanitizeColumnName(key)} = ?`;
     })
     .join(', ');
@@ -197,27 +208,27 @@ function buildCondition(filter: QueryFilter, params: any[]): string | null {
   
   switch (filter.operator) {
     case 'eq':
-      params.push(filter.value);
+      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
       return `${column} = ?`;
       
     case 'neq':
-      params.push(filter.value);
+      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
       return `${column} != ?`;
       
     case 'gt':
-      params.push(filter.value);
+      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
       return `${column} > ?`;
       
     case 'gte':
-      params.push(filter.value);
+      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
       return `${column} >= ?`;
       
     case 'lt':
-      params.push(filter.value);
+      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
       return `${column} < ?`;
       
     case 'lte':
-      params.push(filter.value);
+      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
       return `${column} <= ?`;
       
     case 'like':
@@ -238,7 +249,7 @@ function buildCondition(filter: QueryFilter, params: any[]): string | null {
     case 'in':
       if (Array.isArray(filter.value) && filter.value.length > 0) {
         const placeholders = filter.value.map(() => '?').join(', ');
-        params.push(...filter.value);
+        params.push(...filter.value.map(v => typeof v === 'bigint' ? v.toString() : v));
         return `${column} IN (${placeholders})`;
       }
       return null;

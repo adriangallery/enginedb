@@ -98,26 +98,59 @@ router.post('/:table', async (req: Request, res: Response, next: NextFunction) =
         sql = built.sql.replace('INSERT INTO', 'INSERT OR REPLACE INTO');
         params = built.params;
       } else {
-        // INSERT normal
+        // INSERT normal con IGNORE para evitar errores de duplicados
         const built = buildInsertQuery(table, row);
-        sql = built.sql;
+        sql = built.sql.replace('INSERT INTO', 'INSERT OR IGNORE INTO');
         params = built.params;
       }
       
-      const result = run(sql, params);
+      try {
+        const result = run(sql, params);
       
-      // Obtener el registro insertado/actualizado
-      if (result.lastInsertRowid) {
-        const inserted = get(`SELECT * FROM ${table} WHERE id = ?`, [result.lastInsertRowid]);
-        if (inserted) {
-          results.push(parseJsonFields(inserted));
+        // Obtener el registro insertado/actualizado
+        if (result.lastInsertRowid) {
+          const inserted = get(`SELECT * FROM ${table} WHERE id = ?`, [result.lastInsertRowid]);
+          if (inserted) {
+            results.push(parseJsonFields(inserted));
+          }
+        } else if (onConflict && row[onConflict]) {
+          // Para upsert, buscar por la columna de conflicto
+          const updated = get(`SELECT * FROM ${table} WHERE ${onConflict} = ?`, [row[onConflict]]);
+          if (updated) {
+            results.push(parseJsonFields(updated));
+          }
+        } else {
+          // Si no hay lastInsertRowid (INSERT OR IGNORE ignoró duplicado), buscar por unique constraint
+          // Intentar encontrar el registro existente por tx_hash y log_index si existen
+          if (row.tx_hash && row.log_index !== undefined) {
+            const existing = get(
+              `SELECT * FROM ${table} WHERE tx_hash = ? AND log_index = ?`,
+              [row.tx_hash, row.log_index]
+            );
+            if (existing) {
+              results.push(parseJsonFields(existing));
+            }
+          }
         }
-      } else if (onConflict && row[onConflict]) {
-        // Para upsert, buscar por la columna de conflicto
-        const updated = get(`SELECT * FROM ${table} WHERE ${onConflict} = ?`, [row[onConflict]]);
-        if (updated) {
-          results.push(parseJsonFields(updated));
+      } catch (error: any) {
+        // Si es error de UNIQUE constraint, ignorar silenciosamente (ya existe)
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.message?.includes('UNIQUE constraint')) {
+          // Intentar encontrar el registro existente
+          if (row.tx_hash && row.log_index !== undefined) {
+            const existing = get(
+              `SELECT * FROM ${table} WHERE tx_hash = ? AND log_index = ?`,
+              [row.tx_hash, row.log_index]
+            );
+            if (existing) {
+              results.push(parseJsonFields(existing));
+              continue;
+            }
+          }
+          // Si no se puede encontrar, simplemente continuar sin agregar a results
+          continue;
         }
+        // Para otros errores, lanzar
+        throw error;
       }
     }
     
