@@ -16,11 +16,7 @@
 import 'dotenv/config';
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import fs from 'fs';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 console.log('');
 console.log('═══════════════════════════════════════════════════════════════════');
@@ -44,7 +40,8 @@ let apiProcess: ChildProcess | null = null;
 // ============================================================================
 
 async function startAPIServer(): Promise<void> {
-  const apiServerPath = path.join(__dirname, '..', 'api', 'dist', 'server.js');
+  // Usar process.cwd() para obtener la raíz del proyecto
+  const apiServerPath = path.join(process.cwd(), 'api', 'dist', 'server.js');
   
   // Verificar que existe
   if (!fs.existsSync(apiServerPath)) {
