@@ -12,7 +12,9 @@
     "export-supabase": "tsx scripts/export-from-supabase.ts",
     "import-sqlite": "tsx scripts/import-to-sqlite.ts",
     "validate": "tsx scripts/validate-migration.ts",
-    "backup": "tsx scripts/backup-to-github.ts"
+    "backup": "tsx scripts/backup-to-github.ts",
+    "check-records": "tsx scripts/check-records.ts",
+    "check-railway": "tsx scripts/check-railway-records.ts"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",

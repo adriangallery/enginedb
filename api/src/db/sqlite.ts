@@ -23,6 +23,27 @@ export function getDatabase(): Database.Database {
       fs.mkdirSync(dir, { recursive: true });
     }
     
+    // Si la base de datos no existe, buscar en el repo (para Railway)
+    if (!fs.existsSync(dbPath)) {
+      // Posibles ubicaciones de la DB en el repo
+      const possiblePaths = [
+        path.join(process.cwd(), 'api', 'data', 'enginedb.sqlite'),
+        path.join(process.cwd(), 'data', 'enginedb.sqlite'),
+        path.join(__dirname, '..', '..', 'data', 'enginedb.sqlite'),
+        path.join(__dirname, '..', 'data', 'enginedb.sqlite'),
+      ];
+      
+      for (const repoDbPath of possiblePaths) {
+        if (fs.existsSync(repoDbPath)) {
+          console.log(`📦 Base de datos no encontrada en ${dbPath}`);
+          console.log(`   Copiando desde repo: ${repoDbPath}`);
+          fs.copyFileSync(repoDbPath, dbPath);
+          console.log(`   ✅ Base de datos copiada exitosamente`);
+          break;
+        }
+      }
+    }
+    
     // Crear conexión
     db = new Database(dbPath);
     
