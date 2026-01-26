@@ -79,6 +79,36 @@ Haz clic en **"+ New Variable"** y agrega cada una:
 
 ---
 
+## 📤 Variables para Sincronización a GitHub
+
+Estas variables permiten que Railway sincronice la base de datos SQLite automáticamente a GitHub, para que el frontend pueda acceder a los datos actualizados.
+
+### `GITHUB_TOKEN` (Requerida para GitHub Sync)
+**Dónde obtenerlo:**
+1. Ve a: https://github.com/settings/tokens
+2. Click en **"Generate new token (classic)"**
+3. Selecciona el scope **`repo`** (Full control of private repositories)
+4. Click en **"Generate token"**
+5. **IMPORTANTE**: Copia el token inmediatamente (solo se muestra una vez)
+
+**En Railway:**
+- **Key**: `GITHUB_TOKEN`
+- **Value**: `ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` (tu token)
+
+### `GITHUB_SYNC_INTERVAL_MINUTES` (Opcional)
+- **Value**: `10` (por defecto)
+- **Descripción**: Cada cuántos minutos Railway sube la base de datos a GitHub
+- **Valores recomendados**:
+  - `5` - Datos muy frescos (más commits en GitHub)
+  - `10` - Balance recomendado
+  - `15` - Menos commits, datos menos frescos
+
+### `GITHUB_REPO` (Opcional)
+- **Value**: `adriangallery/enginedb` (por defecto)
+- **Descripción**: Solo cambiar si usas otro repositorio
+
+---
+
 ## ✅ Verificar que Funcionan
 
 Después de agregar las variables:

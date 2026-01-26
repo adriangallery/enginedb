@@ -3,9 +3,12 @@
  * Se ejecuta en un loop infinito con intervalos configurables
  * Sincroniza eventos de TODOS los contratos usando el sistema unificado
  * Mucho más eficiente: lee cada bloque UNA SOLA VEZ para todos los contratos
+ * 
+ * También sincroniza la base de datos a GitHub periódicamente
  */
 
 import { syncAllContracts } from './unified-listener.js';
+import { syncDatabaseToGitHub, isGitHubSyncEnabled } from './github-sync.js';
 import 'dotenv/config';
 
 // Configuración del intervalo de sincronización (en milisegundos)
@@ -24,6 +27,17 @@ const BATCHES_PER_CONTRACT = process.env.BATCHES_PER_CONTRACT
   ? parseInt(process.env.BATCHES_PER_CONTRACT)
   : 50;
 
+// Configuración: intervalo de sincronización a GitHub (en minutos)
+// Por defecto: 10 minutos
+const GITHUB_SYNC_INTERVAL_MINUTES = process.env.GITHUB_SYNC_INTERVAL_MINUTES
+  ? parseInt(process.env.GITHUB_SYNC_INTERVAL_MINUTES)
+  : 10;
+
+const GITHUB_SYNC_INTERVAL_MS = GITHUB_SYNC_INTERVAL_MINUTES * 60 * 1000;
+
+// Timestamp de la última sincronización a GitHub
+let lastGitHubSync = 0;
+
 /**
  * Función para esperar un tiempo determinado
  */
@@ -39,6 +53,13 @@ async function runContinuousListener() {
   console.log('==========================================');
   console.log(`⏰ Inicio: ${new Date().toISOString()}`);
   console.log(`🔄 Intervalo de sincronización: ${SYNC_INTERVAL_MINUTES} minutos`);
+  
+  // Mostrar estado de GitHub sync
+  if (isGitHubSyncEnabled()) {
+    console.log(`📤 GitHub Sync: Activado (cada ${GITHUB_SYNC_INTERVAL_MINUTES} minutos)`);
+  } else {
+    console.log('📤 GitHub Sync: Desactivado (GITHUB_TOKEN no configurado)');
+  }
   console.log('');
 
   let iteration = 0;
@@ -110,6 +131,25 @@ async function runContinuousListener() {
       console.log('');
       console.log('⚠️  Alcanzado límite de rounds, reiniciando ciclo...');
     }
+
+    // Sincronizar base de datos a GitHub si ha pasado el intervalo
+    if (isGitHubSyncEnabled()) {
+      const timeSinceLastSync = Date.now() - lastGitHubSync;
+      if (timeSinceLastSync >= GITHUB_SYNC_INTERVAL_MS) {
+        console.log('');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('📤 Sincronizando base de datos a GitHub...');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        
+        const syncResult = await syncDatabaseToGitHub();
+        lastGitHubSync = Date.now();
+        
+        if (syncResult.success) {
+          console.log(`🕐 Próxima sincronización a GitHub: ${new Date(lastGitHubSync + GITHUB_SYNC_INTERVAL_MS).toISOString()}`);
+        }
+      }
+    }
+
     console.log(`⏳ Esperando ${SYNC_INTERVAL_MINUTES} minutos hasta la próxima sincronización...`);
     console.log(`🕐 Próxima ejecución: ${new Date(Date.now() + SYNC_INTERVAL_MS).toISOString()}`);
 
