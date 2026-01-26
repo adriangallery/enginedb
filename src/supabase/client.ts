@@ -1,13 +1,19 @@
 /**
- * Cliente de Supabase para interactuar con la base de datos
+ * Cliente de base de datos unificado
+ * Usa SQLite API por defecto, Supabase solo si USE_SUPABASE=true
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { getDBAPIClient } from '../db-api/client.js';
+
+// Determinar qué backend usar
+// SQLite es el default, Supabase solo si se especifica explícitamente
+const USE_SUPABASE = process.env.USE_SUPABASE === 'true';
 
 /**
- * Validar que las variables de entorno necesarias estén presentes
+ * Validar que las variables de entorno de Supabase estén presentes
  */
-function validateEnv() {
+function validateSupabaseEnv() {
   const requiredVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
   const missing = requiredVars.filter((varName) => !process.env[varName]);
 
@@ -19,11 +25,10 @@ function validateEnv() {
 }
 
 /**
- * Crear y exportar el cliente de Supabase
- * Usa el service role key para tener acceso completo (necesario para el bot)
+ * Crear cliente de Supabase (solo si USE_SUPABASE=true)
  */
 export function createSupabaseClient(): SupabaseClient {
-  validateEnv();
+  validateSupabaseEnv();
 
   const supabaseUrl = process.env.SUPABASE_URL!;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -114,15 +119,32 @@ export interface Database {
 
 // Instancia singleton del cliente (se crea bajo demanda)
 let supabaseClient: SupabaseClient | null = null;
+let dbClient: ReturnType<typeof getDBAPIClient> | null = null;
 
 /**
- * Obtener el cliente de Supabase (singleton)
+ * Tipo unificado para el cliente de base de datos
  */
-export function getSupabaseClient(): SupabaseClient {
-  if (!supabaseClient) {
-    supabaseClient = createSupabaseClient();
+type DatabaseClient = SupabaseClient | ReturnType<typeof getDBAPIClient>;
+
+/**
+ * Obtener el cliente de base de datos (singleton)
+ * Usa SQLite API por defecto, Supabase solo si USE_SUPABASE=true
+ */
+export function getSupabaseClient(): DatabaseClient {
+  if (USE_SUPABASE) {
+    if (!supabaseClient) {
+      console.log('📦 Usando Supabase como backend de datos');
+      supabaseClient = createSupabaseClient();
+    }
+    return supabaseClient;
+  } else {
+    if (!dbClient) {
+      const apiUrl = process.env.DB_API_URL || 'http://localhost:8080';
+      console.log(`📦 Usando SQLite API como backend de datos (${apiUrl})`);
+      dbClient = getDBAPIClient();
+    }
+    return dbClient;
   }
-  return supabaseClient;
 }
 
 /**
@@ -163,7 +185,7 @@ export async function getLastSyncedBlockByContract(
 
   if (error) {
     // Si no existe registro, retornar 0
-    if (error.code === 'PGRST116') {
+    if (error.code === 'PGRST116' || (error as any).code === '404') {
       return 0;
     }
     console.error(
@@ -173,7 +195,7 @@ export async function getLastSyncedBlockByContract(
     throw error;
   }
 
-  return data?.last_synced_block ?? 0;
+  return (data as any)?.last_synced_block ?? 0;
 }
 
 /**
@@ -193,11 +215,14 @@ export async function updateLastSyncedBlockByContract(
     .eq('contract_address', contractAddress.toLowerCase())
     .single();
 
-  if (selectError && selectError.code === 'PGRST116') {
+  const notFound = selectError && (selectError.code === 'PGRST116' || (selectError as any).code === '404');
+
+  if (notFound) {
     // No existe registro, crear uno nuevo
     const { error: insertError } = await client.from('sync_state').insert({
       contract_address: contractAddress.toLowerCase(),
       last_synced_block: blockNumber,
+      updated_at: new Date().toISOString(),
     });
 
     if (insertError) {
@@ -217,7 +242,10 @@ export async function updateLastSyncedBlockByContract(
     // Actualizar registro existente
     const { error: updateError } = await client
       .from('sync_state')
-      .update({ last_synced_block: blockNumber })
+      .update({ 
+        last_synced_block: blockNumber,
+        updated_at: new Date().toISOString(),
+      })
       .eq('contract_address', contractAddress.toLowerCase());
 
     if (updateError) {
@@ -247,7 +275,7 @@ export async function getLastHistoricalBlockByContract(
 
   if (error) {
     // Si no existe registro, retornar null
-    if (error.code === 'PGRST116') {
+    if (error.code === 'PGRST116' || (error as any).code === '404') {
       return null;
     }
     console.error(
@@ -257,7 +285,7 @@ export async function getLastHistoricalBlockByContract(
     throw error;
   }
 
-  return data?.last_historical_block ?? null;
+  return (data as any)?.last_historical_block ?? null;
 }
 
 /**
@@ -277,12 +305,15 @@ export async function updateLastHistoricalBlockByContract(
     .eq('contract_address', contractAddress.toLowerCase())
     .single();
 
-  if (selectError && selectError.code === 'PGRST116') {
+  const notFound = selectError && (selectError.code === 'PGRST116' || (selectError as any).code === '404');
+
+  if (notFound) {
     // No existe registro, crear uno nuevo
     const { error: insertError } = await client.from('sync_state').insert({
       contract_address: contractAddress.toLowerCase(),
       last_synced_block: 0,
       last_historical_block: blockNumber,
+      updated_at: new Date().toISOString(),
     });
 
     if (insertError) {
@@ -302,7 +333,10 @@ export async function updateLastHistoricalBlockByContract(
     // Actualizar registro existente
     const { error: updateError } = await client
       .from('sync_state')
-      .update({ last_historical_block: blockNumber })
+      .update({ 
+        last_historical_block: blockNumber,
+        updated_at: new Date().toISOString(),
+      })
       .eq('contract_address', contractAddress.toLowerCase());
 
     if (updateError) {

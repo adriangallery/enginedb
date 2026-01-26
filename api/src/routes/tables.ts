@@ -65,12 +65,13 @@ router.get('/:table', async (req: Request, res: Response, next: NextFunction) =>
 
 /**
  * POST /rest/v1/:table
- * Insert data into a table
+ * Insert data into a table (or upsert if on_conflict is specified)
  */
 router.post('/:table', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { table } = req.params;
     const body = req.body;
+    const onConflict = req.query.on_conflict as string | undefined;
     
     // Validar tabla
     if (!isValidTable(table)) {
@@ -87,14 +88,35 @@ router.post('/:table', async (req: Request, res: Response, next: NextFunction) =
     const results: any[] = [];
     
     for (const row of rows) {
-      const { sql, params } = buildInsertQuery(table, row);
+      let sql: string;
+      let params: any[];
+      
+      if (onConflict) {
+        // UPSERT: INSERT OR REPLACE
+        const built = buildInsertQuery(table, row);
+        // Modificar para usar INSERT OR REPLACE
+        sql = built.sql.replace('INSERT INTO', 'INSERT OR REPLACE INTO');
+        params = built.params;
+      } else {
+        // INSERT normal
+        const built = buildInsertQuery(table, row);
+        sql = built.sql;
+        params = built.params;
+      }
+      
       const result = run(sql, params);
       
-      // Obtener el registro insertado
+      // Obtener el registro insertado/actualizado
       if (result.lastInsertRowid) {
         const inserted = get(`SELECT * FROM ${table} WHERE id = ?`, [result.lastInsertRowid]);
         if (inserted) {
           results.push(parseJsonFields(inserted));
+        }
+      } else if (onConflict && row[onConflict]) {
+        // Para upsert, buscar por la columna de conflicto
+        const updated = get(`SELECT * FROM ${table} WHERE ${onConflict} = ?`, [row[onConflict]]);
+        if (updated) {
+          results.push(parseJsonFields(updated));
         }
       }
     }

@@ -4,8 +4,9 @@
  */
 
 // Configuración
-const DB_API_URL = process.env.DB_API_URL || 'http://localhost:3000';
-const DB_API_KEY = process.env.DB_API_KEY || '';
+// En Railway, la API corre en el mismo contenedor en el puerto 8080
+const DB_API_URL = process.env.DB_API_URL || `http://localhost:${process.env.PORT || 8080}`;
+const DB_API_KEY = process.env.DB_API_KEY || process.env.API_KEY || '';
 
 /**
  * Interfaz compatible con Supabase
@@ -14,6 +15,7 @@ interface QueryBuilder {
   select(columns?: string): QueryBuilder;
   insert(data: any): QueryBuilder;
   update(data: any): QueryBuilder;
+  upsert(data: any, options?: { onConflict?: string }): QueryBuilder;
   delete(): QueryBuilder;
   eq(column: string, value: any): QueryBuilder;
   neq(column: string, value: any): QueryBuilder;
@@ -68,6 +70,16 @@ function createQueryBuilder(table: string): QueryBuilder {
     update(data: any) {
       method = 'PATCH';
       body = data;
+      return builder;
+    },
+
+    upsert(data: any, options?: { onConflict?: string }) {
+      method = 'POST';
+      body = data;
+      // Add upsert header/param for the API to handle
+      if (options?.onConflict) {
+        filters.push(`on_conflict=${options.onConflict}`);
+      }
       return builder;
     },
 
