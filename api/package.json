@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/server.ts",
-    "build": "tsc",
+    "build": "tsc && cp src/db/schema.sql dist/db/",
     "start": "node dist/server.js",
     "migrate": "tsx scripts/migrate.ts",
     "export-supabase": "tsx scripts/export-from-supabase.ts",
