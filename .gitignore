@@ -6,9 +6,7 @@ dist
 *.log
 .DS_Store
 
-# API SQLite
-api/data/*.db
-api/data/*.sqlite
+# API SQLite - temporary files only (main DB is tracked)
 api/data/*.db-journal
 api/data/*.db-wal
 api/data/*.db-shm
