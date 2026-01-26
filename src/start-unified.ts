@@ -2,11 +2,11 @@
  * Script de inicio unificado para Railway
  * 
  * Este script:
- * 1. Levanta el servidor API SQLite (para los frontends) - si USE_SQLITE_API=true
+ * 1. Levanta el servidor API SQLite (para los frontends) - SIEMPRE por defecto
  * 2. Inicia el bot listener (que sigue usando Supabase por ahora)
  * 
  * Variables de entorno:
- * - USE_SQLITE_API=true  → Levanta el servidor API SQLite
+ * - DISABLE_API=true     → Desactiva el servidor API SQLite (por defecto está activo)
  * - RUN_BOT=false        → No inicia el bot (solo API)
  * - API_KEY              → Clave de autenticación para el API
  * - CORS_ORIGIN          → Orígenes permitidos para CORS
@@ -33,7 +33,8 @@ console.log('');
 // ============================================================================
 
 const API_PORT = process.env.PORT || 3000;
-const USE_SQLITE_API = process.env.USE_SQLITE_API === 'true';
+// API se inicia por defecto, solo se desactiva si DISABLE_API=true
+const RUN_API = process.env.DISABLE_API !== 'true';
 const RUN_BOT = process.env.RUN_BOT !== 'false'; // Por defecto true
 
 let apiProcess: ChildProcess | null = null;
@@ -110,24 +111,27 @@ process.on('SIGINT', () => cleanup('SIGINT'));
 async function main(): Promise<void> {
   try {
     console.log(`📋 Configuración:`);
-    console.log(`   USE_SQLITE_API: ${USE_SQLITE_API}`);
-    console.log(`   RUN_BOT: ${RUN_BOT}`);
+    console.log(`   RUN_API: ${RUN_API} (API SQLite)`);
+    console.log(`   RUN_BOT: ${RUN_BOT} (Bot Listener)`);
+    console.log(`   PORT: ${API_PORT}`);
     console.log('');
     
-    if (USE_SQLITE_API) {
+    // API se inicia primero (siempre, a menos que DISABLE_API=true)
+    if (RUN_API) {
       await startAPIServer();
     } else {
-      console.log('ℹ️  API SQLite desactivada (USE_SQLITE_API != true)');
+      console.log('ℹ️  API SQLite desactivada (DISABLE_API=true)');
     }
     
+    // Bot listener
     if (RUN_BOT) {
       await startBotListener();
     } else {
-      console.log('ℹ️  Bot desactivado (RUN_BOT = false)');
+      console.log('ℹ️  Bot desactivado (RUN_BOT=false)');
     }
     
-    if (!USE_SQLITE_API && !RUN_BOT) {
-      console.log('⚠️  Nada que iniciar. Configura USE_SQLITE_API=true o RUN_BOT=true');
+    if (!RUN_API && !RUN_BOT) {
+      console.log('⚠️  Nada que iniciar. Quita DISABLE_API=true o RUN_BOT=false');
       process.exit(1);
     }
     
