@@ -94,21 +94,36 @@ export function buildCountQuery(table: string, queryParams: QueryParams): SQLQue
 }
 
 /**
+ * Normalizar valor para SQLite (convierte tipos no soportados)
+ */
+function normalizeValueForSQLite(v: any): any {
+  // undefined -> null (SQLite no acepta undefined)
+  if (v === undefined) {
+    return null;
+  }
+  // bigint -> string (SQLite no acepta bigint directamente)
+  if (typeof v === 'bigint') {
+    return v.toString();
+  }
+  // objetos/arrays -> JSON string
+  if (typeof v === 'object' && v !== null) {
+    return JSON.stringify(v);
+  }
+  // boolean -> 0/1 (SQLite usa integers para booleans)
+  if (typeof v === 'boolean') {
+    return v ? 1 : 0;
+  }
+  return v;
+}
+
+/**
  * Construir query INSERT
  */
 export function buildInsertQuery(table: string, data: Record<string, any>): SQLQuery {
-  const columns = Object.keys(data);
-  const values = Object.values(data).map(v => {
-    // Convertir bigint a string (SQLite no acepta bigint directamente)
-    if (typeof v === 'bigint') {
-      return v.toString();
-    }
-    // Convertir objetos a JSON string
-    if (typeof v === 'object' && v !== null) {
-      return JSON.stringify(v);
-    }
-    return v;
-  });
+  // Filtrar campos con undefined y normalizar valores
+  const entries = Object.entries(data).filter(([_, v]) => v !== undefined);
+  const columns = entries.map(([k]) => k);
+  const values = entries.map(([_, v]) => normalizeValueForSQLite(v));
   
   const placeholders = columns.map(() => '?').join(', ');
   
@@ -126,17 +141,11 @@ export function buildInsertQuery(table: string, data: Record<string, any>): SQLQ
 export function buildUpdateQuery(table: string, data: Record<string, any>, queryParams: QueryParams): SQLQuery {
   const params: any[] = [];
   
-  // SET clause
-  const setClause = Object.entries(data)
+  // SET clause - filtrar undefined y normalizar valores
+  const entries = Object.entries(data).filter(([_, v]) => v !== undefined);
+  const setClause = entries
     .map(([key, value]) => {
-      // Convertir bigint a string
-      if (typeof value === 'bigint') {
-        params.push(value.toString());
-      } else if (typeof value === 'object' && value !== null) {
-        params.push(JSON.stringify(value));
-      } else {
-        params.push(value);
-      }
+      params.push(normalizeValueForSQLite(value));
       return `${sanitizeColumnName(key)} = ?`;
     })
     .join(', ');
@@ -205,61 +214,62 @@ function buildWhereClause(filters: QueryFilter[], params: any[]): string {
  */
 function buildCondition(filter: QueryFilter, params: any[]): string | null {
   const column = sanitizeColumnName(filter.column);
+  const value = normalizeValueForSQLite(filter.value);
   
   switch (filter.operator) {
     case 'eq':
-      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
+      params.push(value);
       return `${column} = ?`;
       
     case 'neq':
-      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
+      params.push(value);
       return `${column} != ?`;
       
     case 'gt':
-      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
+      params.push(value);
       return `${column} > ?`;
       
     case 'gte':
-      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
+      params.push(value);
       return `${column} >= ?`;
       
     case 'lt':
-      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
+      params.push(value);
       return `${column} < ?`;
       
     case 'lte':
-      params.push(typeof filter.value === 'bigint' ? filter.value.toString() : filter.value);
+      params.push(value);
       return `${column} <= ?`;
       
     case 'like':
-      params.push(filter.value);
+      params.push(value);
       return `${column} LIKE ?`;
       
     case 'ilike':
-      params.push(filter.value);
+      params.push(value);
       return `${column} LIKE ? COLLATE NOCASE`;
       
     case 'is':
-      if (filter.value === null) {
+      if (filter.value === null || filter.value === undefined) {
         return `${column} IS NULL`;
       }
-      params.push(filter.value);
+      params.push(value);
       return `${column} IS ?`;
       
     case 'in':
       if (Array.isArray(filter.value) && filter.value.length > 0) {
         const placeholders = filter.value.map(() => '?').join(', ');
-        params.push(...filter.value.map(v => typeof v === 'bigint' ? v.toString() : v));
+        params.push(...filter.value.map(v => normalizeValueForSQLite(v)));
         return `${column} IN (${placeholders})`;
       }
       return null;
       
     case 'not':
-      params.push(filter.value);
+      params.push(value);
       return `${column} != ?`;
       
     default:
-      params.push(filter.value);
+      params.push(value);
       return `${column} = ?`;
   }
 }

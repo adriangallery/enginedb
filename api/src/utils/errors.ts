@@ -129,11 +129,21 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
     return;
   }
   
-  // Error genérico
+  // Error de SQLite: binding error (undefined, invalid type, etc.)
+  if (err.message.includes('can only bind') || err.message.includes('SQLite3')) {
+    res.status(400).json({
+      message: 'Invalid data type for SQLite binding',
+      code: 'PGRST400',
+      details: err.message,
+    });
+    return;
+  }
+  
+  // Error genérico - siempre incluir detalles para debugging
   res.status(500).json({
     message: 'Internal server error',
     code: ErrorCodes.INTERNAL_ERROR,
-    details: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    details: err.message, // Siempre incluir para debugging
   });
 }
 

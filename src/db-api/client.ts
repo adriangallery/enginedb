@@ -203,19 +203,47 @@ function createQueryBuilder(table: string): QueryBuilder {
       // Ejecutar request
       const response = await fetch(url, options);
       
+      // Leer respuesta como texto primero (para manejar respuestas vacías)
+      const responseText = await response.text();
+      
       if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({ message: response.statusText }));
+        let errorData: any = { message: response.statusText };
+        if (responseText) {
+          try {
+            errorData = JSON.parse(responseText);
+          } catch {
+            errorData = { message: responseText || response.statusText };
+          }
+        }
         return {
           data: null,
           error: {
             message: errorData.message || response.statusText,
-            code: errorData.code || response.status.toString(),
+            code: errorData.code || `PGRST${response.status}`,
             details: errorData.details,
           },
         };
       }
       
-      const data = await response.json() as T;
+      // Parsear JSON solo si hay contenido
+      let data: T;
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText) as T;
+        } catch (parseError) {
+          return {
+            data: null,
+            error: {
+              message: 'Invalid JSON response from server',
+              code: 'PARSE_ERROR',
+              details: `Response: ${responseText.substring(0, 200)}`,
+            },
+          };
+        }
+      } else {
+        // Respuesta vacía (ej: 201 sin body)
+        data = (method === 'POST' || method === 'PATCH' ? [] : null) as T;
+      }
       
       // Si es single, retornar solo el primer elemento
       if (isSingle) {
@@ -232,7 +260,7 @@ function createQueryBuilder(table: string): QueryBuilder {
         error: {
           message: error.message || 'Network error',
           code: 'NETWORK_ERROR',
-          details: error.toString(),
+          details: error.stack || error.toString(),
         },
       };
     }

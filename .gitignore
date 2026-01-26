@@ -18,4 +18,5 @@ api/data/backups/
 api/dist/
 api/.env
 api/node_modules/
+api/logs.txt
 
