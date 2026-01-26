@@ -80,8 +80,8 @@ async function startBotListener(): Promise<void> {
   console.log('');
   console.log('🤖 Iniciando Bot Listener...');
   
-  // Importar el listener (se auto-inicia al importarlo)
-  await import('./unified-listener.js');
+  // Importar el continuous listener (se auto-inicia al importarlo)
+  await import('./continuous-listener.js');
 }
 
 // ============================================================================
