@@ -6,3 +6,18 @@ dist
 *.log
 .DS_Store
 
+# API SQLite
+api/data/*.db
+api/data/*.sqlite
+api/data/*.db-journal
+api/data/*.db-wal
+api/data/*.db-shm
+api/data/*.sqlite-journal
+api/data/*.sqlite-wal
+api/data/*.sqlite-shm
+api/data/export/
+api/data/backups/
+api/dist/
+api/.env
+api/node_modules/
+
