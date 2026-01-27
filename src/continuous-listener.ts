@@ -28,10 +28,13 @@ const BATCHES_PER_CONTRACT = process.env.BATCHES_PER_CONTRACT
   : 50;
 
 // Configuración: intervalo de sincronización a GitHub (en minutos)
-// Por defecto: 10 minutos
-const GITHUB_SYNC_INTERVAL_MINUTES = process.env.GITHUB_SYNC_INTERVAL_MINUTES
-  ? parseInt(process.env.GITHUB_SYNC_INTERVAL_MINUTES)
-  : 10;
+// Por defecto: 10 minutos. Mínimo 10 para no saturar la API de GitHub.
+const GITHUB_SYNC_INTERVAL_MINUTES = (() => {
+  const raw = process.env.GITHUB_SYNC_INTERVAL_MINUTES
+    ? parseInt(process.env.GITHUB_SYNC_INTERVAL_MINUTES, 10)
+    : 10;
+  return Math.max(10, isNaN(raw) ? 10 : raw);
+})();
 
 const GITHUB_SYNC_INTERVAL_MS = GITHUB_SYNC_INTERVAL_MINUTES * 60 * 1000;
 
@@ -56,7 +59,11 @@ async function runContinuousListener() {
   
   // Mostrar estado de GitHub sync
   if (isGitHubSyncEnabled()) {
-    console.log(`📤 GitHub Sync: Activado (cada ${GITHUB_SYNC_INTERVAL_MINUTES} minutos)`);
+    const requested = process.env.GITHUB_SYNC_INTERVAL_MINUTES;
+    const clamped = requested && parseInt(requested, 10) < 10;
+    console.log(
+      `📤 GitHub Sync: Activado (cada ${GITHUB_SYNC_INTERVAL_MINUTES} min${clamped ? ', mínimo 10 para no saturar GitHub' : ''})`
+    );
   } else {
     console.log('📤 GitHub Sync: Desactivado (GITHUB_TOKEN no configurado)');
   }
