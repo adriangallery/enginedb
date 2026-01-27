@@ -1,0 +1,5 @@
+# Required for native Node modules (e.g. better-sqlite3) built with node-gyp
+# See: https://github.com/railwayapp/nixpacks/issues/904
+[phases.setup]
+nixPkgs = ["python311"]
+aptPkgs = ["build-essential"]
