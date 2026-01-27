@@ -7,7 +7,26 @@
 
 ## 1. Visión General del Proyecto
 
-**EngineDB** es un sistema de indexación y monitoreo de eventos blockchain en **Base Mainnet** (Chain ID: 8453). Actúa como agregador de datos para el ecosistema **AdrianPunks**, sincronizando eventos de múltiples contratos inteligentes a tiempo real hacia bases de datos (Supabase PostgreSQL y/o SQLite local) y exponiendo los datos mediante una API REST compatible con PostgREST.
+### Objetivo Principal
+
+**EngineDB** es un sistema de indexación blockchain con **base de datos gratuita hospedada en GitHub**, diseñado para reemplazar Supabase debido a límites del plan gratuito.
+
+### Problema que Resuelve
+
+- **Supabase Free Plan**: Límite de requests superado constantemente
+- **Costo**: Planes pagados de Supabase son costosos para este volumen de datos
+- **Solución**: SQLite + GitHub + API REST gratuita en Railway
+
+### Arquitectura de Solución
+
+1. **Bot de Sincronización** (Railway) → Indexa blockchain → Escribe a SQLite
+2. **SQLite Database** (GitHub) → Base de datos versionada con commits automáticos
+3. **API REST** (Railway) → Sirve SQLite vía HTTP → Frontends lo consumen
+4. **Frontends** → Hacen requests al API (no más direct-to-Supabase)
+
+### Ecosistema
+
+Indexa eventos de **Base Mainnet** (Chain ID: 8453) para el ecosistema **AdrianPunks**, sincronizando 11 contratos inteligentes (ERC20, ERC721, ERC1155, custom) en tiempo real.
 
 ### Contratos Indexados (11 activos)
 
@@ -28,49 +47,91 @@
 
 ## 2. Arquitectura del Sistema
 
-### Diagrama de Alto Nivel
+### Diagrama de Alto Nivel (Arquitectura GitHub-First)
 
 ```
-┌──────────────────────────────────────────────────┐
-│         BASE MAINNET (RPC)                       │
-│  11 Smart Contracts con 100+ tipos de eventos   │
-└──────────────────────────────────────────────────┘
-                    ▲
-                    │ Viem Client
-                    ▼
-┌──────────────────────────────────────────────────┐
-│     UNIFIED LISTENER (Optimizado)                │
-│  • Lee cada bloque UNA SOLA VEZ                  │
-│  • Decodifica para 11 contratos en paralelo     │
-│  • Batch processing: 10-20 bloques              │
-│  • 20 requests paralelos / 10 en fallback       │
-│                                                   │
-│  ┌─────────┬─────────┬─────────┬─────────────┐  │
-│  │ ERC20   │ ERC721  │ ERC1155 │ Custom (5)  │  │
-│  │ Decoder │ Decoder │ Decoder │ Decoders    │  │
-│  └─────────┴─────────┴─────────┴─────────────┘  │
-│                    ▼                              │
-│  ┌─────────┬─────────┬─────────┬─────────────┐  │
-│  │ ERC20   │ ERC721  │ ERC1155 │ Custom (5)  │  │
-│  │Processor│Processor│Processor│ Processors  │  │
-│  └─────────┴─────────┴─────────┴─────────────┘  │
-└──────────────────────────────────────────────────┘
-        │                           │
-        ▼                           ▼
-┌──────────────────┐      ┌──────────────────┐
-│ SUPABASE         │      │ SQLite Local     │
-│ PostgreSQL       │◄────►│ (API Backend)    │
-│ (Production)     │ Sync │ Port 3000        │
-│ 30+ tablas       │      │ 30+ tablas       │
-└──────────────────┘      └──────────────────┘
-        ▲                           ▲
-        │                           │
-┌───────┴─────────────┐  ┌──────────┴────────────┐
-│ CONTINUOUS LISTENER │  │ EXPRESS API SERVER    │
-│ Railway (5 min)     │  │ REST + PostgREST      │
-│ GitHub Auto-Sync    │  │ CORS + Auth           │
-└─────────────────────┘  └───────────────────────┘
+                    ┌─────────────────────────────────────┐
+                    │     BASE MAINNET (RPC)              │
+                    │  11 Smart Contracts (ERC20/721/1155)│
+                    └─────────────────────────────────────┘
+                                      ▲
+                                      │ Viem Client
+                                      │
+         ┌────────────────────────────┴────────────────────────────┐
+         │                 RAILWAY BOT SERVICE                      │
+         │  ┌──────────────────────────────────────────────────┐   │
+         │  │        UNIFIED LISTENER (Optimizado)             │   │
+         │  │  • Lee cada bloque UNA SOLA VEZ                  │   │
+         │  │  • Decodifica 11 contratos en paralelo           │   │
+         │  │  • Batch processing: 10-20 bloques               │   │
+         │  │  • Sincronización cada 5 minutos                 │   │
+         │  └──────────────────────────────────────────────────┘   │
+         │                       ▼                                  │
+         │  ┌──────────────────────────────────────────────────┐   │
+         │  │  8 Procesadores Especializados                   │   │
+         │  │  ERC20 | ERC721 | ERC1155 | Custom (5)           │   │
+         │  └──────────────────────────────────────────────────┘   │
+         │                       ▼                                  │
+         │  ┌──────────────────────────────────────────────────┐   │
+         │  │     SQLite Database (5MB aprox)                  │   │
+         │  │     /app/data/enginedb.sqlite                    │   │
+         │  │     30+ tablas, WAL mode                         │   │
+         │  └──────────────────────────────────────────────────┘   │
+         │                       │                                  │
+         │                       │ Auto-commit cada 10 min          │
+         │                       ▼                                  │
+         │  ┌──────────────────────────────────────────────────┐   │
+         │  │         GitHub Sync Service                      │   │
+         │  │  git add + commit + push enginedb.sqlite         │   │
+         │  └──────────────────────────────────────────────────┘   │
+         └──────────────────────────────────────────────────────────┘
+                                 │
+                                 │ Push to GitHub
+                                 ▼
+         ┌────────────────────────────────────────────────────────┐
+         │            GITHUB REPOSITORY (Gratuito)                │
+         │  ┌──────────────────────────────────────────────────┐  │
+         │  │  api/data/enginedb.sqlite                        │  │
+         │  │  • Versionado con Git                            │  │
+         │  │  • Commits automáticos cada 10 min               │  │
+         │  │  • Historial completo de cambios                 │  │
+         │  │  • ~5MB por archivo                              │  │
+         │  └──────────────────────────────────────────────────┘  │
+         └────────────────────────────────────────────────────────┘
+                                 │
+                                 │ Railway clona repo
+                                 │ en cada deploy
+                                 ▼
+         ┌────────────────────────────────────────────────────────┐
+         │              RAILWAY API SERVICE                       │
+         │  ┌──────────────────────────────────────────────────┐  │
+         │  │      Express + better-sqlite3                    │  │
+         │  │      • Lee enginedb.sqlite (read-only)           │  │
+         │  │      • Expone vía REST (PostgREST compatible)    │  │
+         │  │      • CORS habilitado                           │  │
+         │  │      • Health check: /health                     │  │
+         │  └──────────────────────────────────────────────────┘  │
+         │                    PORT 3000                           │
+         └────────────────────────────────────────────────────────┘
+                                 │
+                                 │ HTTP Requests
+                                 ▼
+         ┌────────────────────────────────────────────────────────┐
+         │                  FRONTENDS                             │
+         │  • Next.js / React / Vue / etc.                        │
+         │  • GET /rest/v1/trade_events?limit=10                  │
+         │  • GET /rest/v1/erc20_transfers?from=eq.0x123          │
+         │  • Sin límite de requests (Railway free = 500GB/mes)   │
+         └────────────────────────────────────────────────────────┘
 ```
+
+### Flujo de Datos Completo
+
+1. **Bot** (Railway) lee blockchain cada 5 minutos
+2. **Bot** escribe eventos a SQLite local (`/app/data/enginedb.sqlite`)
+3. **GitHub Sync** hace commit + push a GitHub cada 10 minutos
+4. **API** (Railway) clona repo al deployar, lee SQLite
+5. **Frontends** hacen requests HTTP al API (sin límites de Supabase)
 
 ### Componentes Principales
 
@@ -93,6 +154,32 @@
    - Express + better-sqlite3
    - Compatible con sintaxis PostgREST de Supabase
    - Autenticación por API key
+
+5. **GitHub Sync** (`src/github-sync.ts`)
+   - Commits automáticos cada 10 minutos
+   - Versionado completo de la base de datos
+   - Permite rollback a estados anteriores
+
+---
+
+### Ventajas vs. Supabase
+
+| Aspecto | Supabase Free | EngineDB (GitHub + Railway) |
+|---------|---------------|----------------------------|
+| **Requests/mes** | Limitado (~50K) | Ilimitado |
+| **Storage** | 500 MB | Ilimitado (GitHub) |
+| **Costo mensual** | $0 → $25+ al superar | $0 (Railway + GitHub free) |
+| **Velocidad** | Limitada por plan | Full speed |
+| **Backup** | Manual | Git commits (automático) |
+| **Rollback** | Difícil | `git revert` (fácil) |
+| **Scaling** | Requiere upgrade | Horizontal (más instancias) |
+| **Vendor Lock-in** | Alto | Bajo (SQLite portable) |
+
+### Costos Actuales
+
+- **Railway Free Tier**: $5 crédito/mes, 500GB transferencia
+- **GitHub**: Repositorios ilimitados (gratuito)
+- **Total**: **$0/mes** (dentro de límites free)
 
 ---
 
@@ -1040,6 +1127,126 @@ CREATE INDEX idx_erc20_transfers_to ON erc20_transfers(to_address);
 ```
 
 *(30+ tablas más con estructura similar)*
+
+---
+
+## 17. Estado Actual del Proyecto (Enero 2026)
+
+### ✅ Completado y Funcionando
+
+- **Bot de Sincronización**: 100% funcional
+  - Unified listener optimizado (lee bloques 1 sola vez)
+  - 11 contratos indexados correctamente
+  - Sincronización cada 5 minutos
+  - GitHub auto-sync cada 10 minutos
+  - SQLite escribiendo correctamente (~5MB)
+
+- **Base de Datos SQLite**: Operativa
+  - 30+ tablas con datos reales
+  - Commits automáticos a GitHub funcionando
+  - Integridad verificada
+  - WAL mode habilitado para performance
+
+- **GitHub Repository**: Configurado
+  - Commits automáticos cada 10 minutos
+  - Historial completo de cambios
+  - Backup versionado
+
+### 🔧 En Proceso de Resolución
+
+**API REST en Railway: Health Check Fallando**
+
+**Problema**: El contenedor de Railway no está exponiendo correctamente el servidor Express en el puerto asignado.
+
+**Síntomas**:
+- Build completa correctamente (~15 segundos)
+- Health check falla después de 5 minutos de intentos
+- No hay logs de runtime visibles (proceso crashea inmediatamente)
+
+**Intentos Realizados**:
+1. ❌ Spawn de proceso hijo (fallaba silenciosamente)
+2. ❌ Dynamic imports (crasheaba en Railway)
+3. ⏳ **Actual**: Entry point directo a `api/dist/server.js`
+
+**Configuración Actual Railway**:
+```json
+{
+  "startCommand": "node api/dist/server.js",
+  "healthcheckPath": "/health",
+  "healthcheckTimeout": 300
+}
+```
+
+**Próximos Pasos**:
+1. Revisar logs de runtime de Railway (no solo build)
+2. Si persiste: Crear Dockerfile custom con control total
+3. Alternativa: Separar API a Vercel/Netlify (serverless)
+
+### 🎯 Arquitectura Objetivo Final
+
+```
+┌─────────────────────────────────────────────────────┐
+│ RAILWAY                                             │
+│  Service 1: Bot (continuous-listener.ts)            │
+│    └─ Sincroniza blockchain → SQLite → GitHub      │
+│                                                      │
+│  Service 2: API (api/dist/server.js)                │
+│    └─ Sirve SQLite vía REST → Frontends            │
+└─────────────────────────────────────────────────────┘
+                     │
+                     │ Commits automáticos
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│ GITHUB                                              │
+│  Repositorio: enginedb                              │
+│    └─ api/data/enginedb.sqlite (versionado)        │
+└─────────────────────────────────────────────────────┘
+                     │
+                     │ HTTP Requests
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│ FRONTENDS                                           │
+│  GET /rest/v1/:table                                │
+│    └─ Sin límites de Supabase ✅                    │
+└─────────────────────────────────────────────────────┘
+```
+
+### 📊 Métricas de Éxito
+
+| Métrica | Estado Actual | Objetivo |
+|---------|---------------|----------|
+| Bot sincronizando | ✅ Funcional | ✅ OK |
+| SQLite escribiendo | ✅ Funcional | ✅ OK |
+| GitHub commits | ✅ Funcional | ✅ OK |
+| API respondiendo | ❌ Fallando | 🎯 Por resolver |
+| Frontends consumiendo | ⏸️ Bloqueado | Depende de API |
+
+### 🐛 Troubleshooting Actual
+
+Para resolver el problema del API en Railway, necesitamos:
+
+1. **Logs de Runtime**: Ver qué error exacto ocurre al iniciar
+2. **Variables de Entorno**: Verificar que PORT está siendo asignado
+3. **Permisos**: Verificar que SQLite puede leerse en `/app/data/`
+4. **Network**: Verificar que el servidor escucha en `0.0.0.0:PORT`
+
+**Comando para debugging local**:
+```bash
+# Simular Railway localmente
+PORT=3000 node api/dist/server.js
+
+# Verificar health check
+curl http://localhost:3000/health
+
+# Ver logs completos
+NODE_ENV=production PORT=3000 node api/dist/server.js 2>&1 | tee api.log
+```
+
+---
+
+**Última sincronización**: 2026-01-27T09:30:00.000Z
+
+**Versión del documento**: 1.1
 
 ---
 
