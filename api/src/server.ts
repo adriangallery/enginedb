@@ -16,8 +16,8 @@ import tablesRouter from './routes/tables.js';
 // Crear app Express
 const app = express();
 
-// Configuración
-const PORT = process.env.PORT || 3000;
+// Configuración (PORT puede venir como string desde Railway)
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
 // Middleware de CORS
