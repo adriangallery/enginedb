@@ -19,7 +19,7 @@
     ]
   },
   "deploy": {
-    "startCommand": "node dist/src/start-unified.js",
+    "startCommand": "node api/dist/server.js",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10,
     "healthcheckPath": "/health",
