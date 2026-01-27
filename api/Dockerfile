@@ -39,12 +39,11 @@ RUN cd api && node -e "console.log('Testing better-sqlite3...'); const Database 
 # Cambiar al directorio del API para que Node resuelva node_modules correctamente
 WORKDIR /app/api
 
-# Puerto expuesto (Railway usa PORT dinámico)
+# Puerto expuesto (Railway asigna PORT dinámico)
 EXPOSE 3000
 
-# Health check usando el PORT de Railway (no hardcodeado)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "const port = process.env.PORT || 3000; require('http').get('http://localhost:' + port + '/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+# Railway maneja el health check nativamente usando railway.json config
+# No usar Docker HEALTHCHECK para evitar conflictos con el sistema de Railway
 
-# Script de inicio con logging mejorado
-CMD ["sh", "-c", "echo '🚀 Starting API server...'; echo 'Node version:' && node --version; echo 'Working directory:' && pwd; echo 'Files in dist:' && ls -la dist/; echo 'Starting node process...'; exec node dist/index.js"]
+# Iniciar servidor (Railway usa su propio health check en /health)
+CMD ["node", "dist/index.js"]
