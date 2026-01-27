@@ -126,12 +126,5 @@ export async function startServer(): Promise<void> {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-// Solo iniciar automáticamente si se ejecuta directamente (no desde import)
-if (import.meta.url === `file://${process.argv[1]}`) {
-  startServer().catch((error) => {
-    console.error('💥 Error al iniciar el servidor:', error);
-    process.exit(1);
-  });
-}
-
+// Exportar app para uso externo (startServer ya exportado arriba)
 export { app };
