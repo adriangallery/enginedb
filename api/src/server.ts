@@ -85,9 +85,10 @@ async function startServer(): Promise<void> {
   
   console.log('');
   
-  // Iniciar servidor
-  const server = app.listen(PORT, () => {
-    console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
+  // Iniciar servidor en 0.0.0.0 para que el healthcheck de Railway pueda conectar
+  const HOST = process.env.HOST || '0.0.0.0';
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`🚀 Servidor iniciado en ${HOST}:${PORT}`);
     console.log(`📍 URL: http://localhost:${PORT}`);
     console.log(`🔒 CORS: ${CORS_ORIGIN}`);
     console.log('');

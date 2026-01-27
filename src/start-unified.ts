@@ -64,11 +64,34 @@ async function startAPIServer(): Promise<void> {
       reject(err);
     });
     
-    // Dar tiempo a que inicie
-    setTimeout(() => {
-      console.log('   ✅ API iniciada');
-      resolve();
-    }, 2000);
+    apiProcess.on('exit', (code) => {
+      if (code !== null && code !== 0) {
+        reject(new Error(`API terminó con código ${code}`));
+      }
+    });
+    
+    // Esperar a que /health responda (máx 60s) para que Railway no falle el healthcheck
+    const healthUrl = `http://127.0.0.1:${API_PORT}/health`;
+    const deadline = Date.now() + 60_000;
+    const tryHealth = () => {
+      fetch(healthUrl).then((r) => {
+        if (r.ok) {
+          console.log('   ✅ API respondiendo en /health');
+          resolve();
+        } else if (Date.now() < deadline) {
+          setTimeout(tryHealth, 1500);
+        } else {
+          reject(new Error('API no respondió en /health dentro de 60s'));
+        }
+      }).catch(() => {
+        if (Date.now() < deadline) {
+          setTimeout(tryHealth, 1500);
+        } else {
+          reject(new Error('API no respondió en /health dentro de 60s'));
+        }
+      });
+    };
+    setTimeout(tryHealth, 2000);
   });
 }
 
