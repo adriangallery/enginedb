@@ -31,7 +31,8 @@ console.log('');
 const API_PORT = process.env.PORT || 3000;
 // API se inicia por defecto, solo se desactiva si DISABLE_API=true
 const RUN_API = process.env.DISABLE_API !== 'true';
-const RUN_BOT = process.env.RUN_BOT !== 'false'; // Por defecto true
+// Bot ahora requiere RUN_BOT=true explícitamente (más seguro para Railway)
+const RUN_BOT = process.env.RUN_BOT === 'true'; // Por defecto false ahora
 
 let apiProcess: ChildProcess | null = null;
 
@@ -42,56 +43,52 @@ let apiProcess: ChildProcess | null = null;
 async function startAPIServer(): Promise<void> {
   // Usar process.cwd() para obtener la raíz del proyecto
   const apiServerPath = path.join(process.cwd(), 'api', 'dist', 'server.js');
-  
+
   // Verificar que existe
   if (!fs.existsSync(apiServerPath)) {
     console.error('❌ API no compilada. Ejecuta "cd api && npm run build" primero.');
     console.error(`   Buscando: ${apiServerPath}`);
     throw new Error('API not compiled');
   }
-  
+
   console.log('📦 Iniciando servidor API SQLite...');
   console.log(`   📁 Puerto: ${API_PORT}`);
-  
+  console.log(`   📁 DB_PATH: ${process.env.DB_PATH || './data/enginedb.sqlite'}`);
+  console.log(`   📁 CWD: ${process.cwd()}`);
+
   return new Promise((resolve, reject) => {
+    // Asegurar que PORT se pase correctamente al proceso hijo
+    const apiEnv = {
+      ...process.env,
+      PORT: API_PORT.toString(),
+      HOST: '0.0.0.0', // Railway necesita 0.0.0.0
+    };
+
     apiProcess = spawn('node', [apiServerPath], {
-      env: { ...process.env },
+      env: apiEnv,
       stdio: 'inherit',
+      cwd: process.cwd(), // Asegurar mismo working directory
     });
-    
+
     apiProcess.on('error', (err) => {
       console.error('❌ Error iniciando API:', err);
       reject(err);
     });
-    
-    apiProcess.on('exit', (code) => {
+
+    apiProcess.on('exit', (code, signal) => {
+      console.error(`⚠️  Proceso API terminó: code=${code}, signal=${signal}`);
       if (code !== null && code !== 0) {
         reject(new Error(`API terminó con código ${code}`));
       }
     });
-    
-    // Esperar a que /health responda (máx 60s) para que Railway no falle el healthcheck
-    const healthUrl = `http://127.0.0.1:${API_PORT}/health`;
-    const deadline = Date.now() + 60_000;
-    const tryHealth = () => {
-      fetch(healthUrl).then((r) => {
-        if (r.ok) {
-          console.log('   ✅ API respondiendo en /health');
-          resolve();
-        } else if (Date.now() < deadline) {
-          setTimeout(tryHealth, 1500);
-        } else {
-          reject(new Error('API no respondió en /health dentro de 60s'));
-        }
-      }).catch(() => {
-        if (Date.now() < deadline) {
-          setTimeout(tryHealth, 1500);
-        } else {
-          reject(new Error('API no respondió en /health dentro de 60s'));
-        }
-      });
-    };
-    setTimeout(tryHealth, 2000);
+
+    // Dar tiempo para que el servidor inicie
+    // Railway hará el health check externamente en /health
+    setTimeout(() => {
+      console.log('   ✅ API debería estar escuchando');
+      console.log(`   🔍 Railway health check → http://0.0.0.0:${API_PORT}/health`);
+      resolve();
+    }, 5000); // Aumentar a 5 segundos
   });
 }
 
