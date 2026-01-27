@@ -72,19 +72,19 @@ app.use('/rest/v1', tablesRouter);
 // Error handler
 app.use(errorHandler);
 
-// Función para iniciar el servidor
-async function startServer(): Promise<void> {
+// Función para iniciar el servidor (exportada para uso externo)
+export async function startServer(): Promise<void> {
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
   console.log('  📦 enginedb-api - Backend SQLite');
   console.log('═══════════════════════════════════════════════════════════');
   console.log('');
-  
+
   // Inicializar base de datos
   await initDatabase();
-  
+
   console.log('');
-  
+
   // Iniciar servidor en 0.0.0.0 para que el healthcheck de Railway pueda conectar
   const HOST = process.env.HOST || '0.0.0.0';
   const server = app.listen(PORT, HOST, () => {
@@ -101,33 +101,37 @@ async function startServer(): Promise<void> {
     console.log('');
     console.log('═══════════════════════════════════════════════════════════');
   });
-  
+
   // Manejo de shutdown graceful
   const shutdown = async (signal: string) => {
     console.log('');
     console.log(`⚠️  Recibida señal ${signal}`);
     console.log('🛑 Cerrando servidor...');
-    
+
     server.close(() => {
       console.log('✅ Servidor cerrado');
       closeDatabase();
       console.log('✅ Base de datos cerrada');
       process.exit(0);
     });
-    
+
     // Forzar cierre después de 10 segundos
     setTimeout(() => {
       console.error('❌ Forzando cierre...');
       process.exit(1);
     }, 10000);
   };
-  
+
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-// Iniciar
-startServer().catch((error) => {
-  console.error('💥 Error al iniciar el servidor:', error);
-  process.exit(1);
-});
+// Solo iniciar automáticamente si se ejecuta directamente (no desde import)
+if (import.meta.url === `file://${process.argv[1]}`) {
+  startServer().catch((error) => {
+    console.error('💥 Error al iniciar el servidor:', error);
+    process.exit(1);
+  });
+}
+
+export { app };
