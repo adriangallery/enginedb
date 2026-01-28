@@ -3,7 +3,7 @@
  * Maneja eventos de staking, items y quests
  */
 
-import { getSupabaseClient } from '../supabase/client.js';
+import { insertEvent } from '../supabase/client.js';
 import type { PunkQuestEvent } from '../contracts/types/punk-quest-events.js';
 import { bigintToString } from '../contracts/types/punk-quest-events.js';
 
@@ -15,7 +15,6 @@ export async function processPunkQuestEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
   const contractAddr = contractAddress.toLowerCase();
 
   switch (event.eventName) {
@@ -23,41 +22,28 @@ export async function processPunkQuestEvent(
     case 'Unstaked':
     case 'RewardClaimed':
     case 'FastLevelUpgradePurchased': {
-      const { error } = await supabase
-        .from('punk_quest_staking_events')
-        .insert({
-          contract_address: contractAddr,
-          event_type: event.eventName,
-          user_address: event.user.toLowerCase(),
-          token_id: Number(event.id),
-          reward_wei:
-            event.eventName === 'RewardClaimed'
-              ? bigintToString(event.reward)
-              : null,
-          bonus_added:
-            event.eventName === 'FastLevelUpgradePurchased'
-              ? bigintToString(event.bonusAdded)
-              : null,
-          timestamp:
-            event.eventName === 'Staked' || event.eventName === 'Unstaked'
-              ? Number(event.ts)
-              : null,
-          tx_hash: event.txHash,
-          log_index: event.logIndex,
-          block_number: Number(event.blockNumber),
-          created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
-        });
-
-      if (error) {
-        if (error.code === '23505') {
-          return;
-        }
-        console.error(
-          `[PunkQuest] Error al insertar evento ${event.eventName}:`,
-          error
-        );
-        throw error;
-      }
+      await insertEvent('punk_quest_staking_events', {
+        contract_address: contractAddr,
+        event_type: event.eventName,
+        user_address: event.user.toLowerCase(),
+        token_id: Number(event.id),
+        reward_wei:
+          event.eventName === 'RewardClaimed'
+            ? bigintToString(event.reward)
+            : null,
+        bonus_added:
+          event.eventName === 'FastLevelUpgradePurchased'
+            ? bigintToString(event.bonusAdded)
+            : null,
+        timestamp:
+          event.eventName === 'Staked' || event.eventName === 'Unstaked'
+            ? Number(event.ts)
+            : null,
+        tx_hash: event.txHash,
+        log_index: event.logIndex,
+        block_number: Number(event.blockNumber),
+        created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
+      });
       break;
     }
 
@@ -94,20 +80,7 @@ export async function processPunkQuestEvent(
         insertData.bonus = bigintToString(event.bonus);
       }
 
-      const { error } = await supabase
-        .from('punk_quest_item_events')
-        .insert(insertData);
-
-      if (error) {
-        if (error.code === '23505') {
-          return;
-        }
-        console.error(
-          `[PunkQuest] Error al insertar evento ${event.eventName}:`,
-          error
-        );
-        throw error;
-      }
+      await insertEvent('punk_quest_item_events', insertData);
       break;
     }
 
@@ -149,20 +122,7 @@ export async function processPunkQuestEvent(
         insertData.adjustment = bigintToString(BigInt(event.adj));
       }
 
-      const { error } = await supabase
-        .from('punk_quest_event_events')
-        .insert(insertData);
-
-      if (error) {
-        if (error.code === '23505') {
-          return;
-        }
-        console.error(
-          `[PunkQuest] Error al insertar evento ${event.eventName}:`,
-          error
-        );
-        throw error;
-      }
+      await insertEvent('punk_quest_event_events', insertData);
       break;
     }
   }

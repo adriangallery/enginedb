@@ -3,7 +3,7 @@
  * Maneja TransferSingle, TransferBatch, ApprovalForAll y eventos custom
  */
 
-import { getSupabaseClient } from '../supabase/client.js';
+import { insertEvent } from '../supabase/client.js';
 import type {
   AdrianTraitsCoreEvent,
   TransferSingleEvent,
@@ -32,9 +32,7 @@ async function processTransferSingleEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
-  const { error } = await supabase.from('erc1155_transfers_single').insert({
+  await insertEvent('erc1155_transfers_single', {
     contract_address: contractAddress.toLowerCase(),
     operator: event.operator.toLowerCase(),
     from_address: event.from.toLowerCase(),
@@ -46,18 +44,6 @@ async function processTransferSingleEvent(
     block_number: Number(event.blockNumber),
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
-
-  if (error) {
-    if (error.code === '23505') {
-      return; // Duplicado, ignorar
-    }
-    console.error(
-      `[ERC1155] Error al insertar TransferSingle:`,
-      error,
-      event
-    );
-    throw error;
-  }
 }
 
 /**
@@ -68,9 +54,7 @@ async function processTransferBatchEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
-  const { error } = await supabase.from('erc1155_transfers_batch').insert({
+  await insertEvent('erc1155_transfers_batch', {
     contract_address: contractAddress.toLowerCase(),
     operator: event.operator.toLowerCase(),
     from_address: event.from.toLowerCase(),
@@ -82,18 +66,6 @@ async function processTransferBatchEvent(
     block_number: Number(event.blockNumber),
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
-
-  if (error) {
-    if (error.code === '23505') {
-      return; // Duplicado, ignorar
-    }
-    console.error(
-      `[ERC1155] Error al insertar TransferBatch:`,
-      error,
-      event
-    );
-    throw error;
-  }
 }
 
 /**
@@ -104,9 +76,7 @@ async function processApprovalForAllEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
-  const { error } = await supabase.from('erc1155_approvals_for_all').insert({
+  await insertEvent('erc1155_approvals_for_all', {
     contract_address: contractAddress.toLowerCase(),
     account: event.account.toLowerCase(),
     operator: event.operator.toLowerCase(),
@@ -116,18 +86,6 @@ async function processApprovalForAllEvent(
     block_number: Number(event.blockNumber),
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
-
-  if (error) {
-    if (error.code === '23505') {
-      return; // Duplicado, ignorar
-    }
-    console.error(
-      `[ERC1155] Error al insertar ApprovalForAll:`,
-      error,
-      event
-    );
-    throw error;
-  }
 }
 
 /**
@@ -138,9 +96,7 @@ async function processURIEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
-  const { error } = await supabase.from('erc1155_uri_updates').insert({
+  await insertEvent('erc1155_uri_updates', {
     contract_address: contractAddress.toLowerCase(),
     token_id: bigintToString(event.id),
     uri: event.value,
@@ -149,14 +105,6 @@ async function processURIEvent(
     block_number: Number(event.blockNumber),
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
-
-  if (error) {
-    if (error.code === '23505') {
-      return; // Duplicado, ignorar
-    }
-    console.error(`[ERC1155] Error al insertar URI:`, error, event);
-    throw error;
-  }
 }
 
 /**
@@ -178,8 +126,6 @@ async function processCustomEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
   // Convertir evento a JSONB según su tipo
   let eventData: Record<string, any> = {};
 
@@ -249,7 +195,7 @@ async function processCustomEvent(
       break;
   }
 
-  const { error } = await supabase.from('erc1155_custom_events').insert({
+  await insertEvent('erc1155_custom_events', {
     contract_address: contractAddress.toLowerCase(),
     event_name: event.eventName,
     event_data: eventData,
@@ -258,18 +204,6 @@ async function processCustomEvent(
     block_number: Number(event.blockNumber),
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
-
-  if (error) {
-    if (error.code === '23505') {
-      return;
-    }
-    console.error(
-      `[ERC1155] Error al insertar evento custom ${event.eventName}:`,
-      error,
-      event
-    );
-    throw error;
-  }
 }
 
 /**

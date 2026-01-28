@@ -3,7 +3,7 @@
  * Maneja eventos de aplicación de serums
  */
 
-import { getSupabaseClient } from '../supabase/client.js';
+import { insertEvent } from '../supabase/client.js';
 import type { AdrianSerumModuleEvent } from '../contracts/types/adrian-serum-module-events.js';
 
 /**
@@ -14,11 +14,9 @@ export async function processSerumModuleEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
   switch (event.eventName) {
     case 'SerumResult':
-      const { error } = await supabase.from('serum_module_events').insert({
+      await insertEvent('serum_module_events', {
         contract_address: contractAddress.toLowerCase(),
         user_address: event.user.toLowerCase(),
         token_id: Number(event.tokenId),
@@ -30,17 +28,6 @@ export async function processSerumModuleEvent(
         block_number: Number(event.blockNumber),
         created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
       });
-
-      if (error) {
-        if (error.code === '23505') {
-          return; // Duplicado, ignorar
-        }
-        console.error(
-          `[SerumModule] Error al insertar evento SerumResult:`,
-          error
-        );
-        throw error;
-      }
       break;
   }
 }

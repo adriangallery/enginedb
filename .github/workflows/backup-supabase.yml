@@ -2,8 +2,8 @@ name: Backup Supabase to GitHub
 
 on:
   schedule:
-    # Cada 6 horas
-    - cron: '0 */6 * * *'
+    # Cada 30 minutos
+    - cron: '*/30 * * * *'
 
   # Permitir ejecución manual
   workflow_dispatch:

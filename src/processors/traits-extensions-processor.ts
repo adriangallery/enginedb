@@ -3,7 +3,7 @@
  * Maneja eventos de traits e inventario
  */
 
-import { getSupabaseClient } from '../supabase/client.js';
+import { insertEvent } from '../supabase/client.js';
 import type { AdrianTraitsExtensionsEvent } from '../contracts/types/adrian-traits-extensions-events.js';
 import { bigintToString } from '../contracts/types/adrian-traits-extensions-events.js';
 
@@ -15,8 +15,6 @@ export async function processTraitsExtensionsEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
   // Convertir evento a JSONB según su tipo
   let eventData: Record<string, any> = {};
 
@@ -71,7 +69,7 @@ export async function processTraitsExtensionsEvent(
       break;
   }
 
-  const { error } = await supabase.from('traits_extensions_events').insert({
+  await insertEvent('traits_extensions_events', {
     contract_address: contractAddress.toLowerCase(),
     event_name: event.eventName,
     event_data: eventData,
@@ -80,17 +78,5 @@ export async function processTraitsExtensionsEvent(
     block_number: Number(event.blockNumber),
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
-
-  if (error) {
-    if (error.code === '23505') {
-      return;
-    }
-    console.error(
-      `[TraitsExtensions] Error al insertar evento ${event.eventName}:`,
-      error,
-      event
-    );
-    throw error;
-  }
 }
 

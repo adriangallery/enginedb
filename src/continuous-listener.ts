@@ -9,6 +9,8 @@
 
 import { syncAllContracts } from './unified-listener.js';
 import { syncDatabaseToGitHub, isGitHubSyncEnabled } from './github-sync.js';
+import { initEventBuffer, getEventBuffer } from './supabase/event-buffer.js';
+import { enableBufferMode } from './supabase/client.js';
 import 'dotenv/config';
 
 // Configuración del intervalo de sincronización (en milisegundos)
@@ -58,6 +60,24 @@ async function runContinuousListener() {
   console.log(`⏰ Inicio: ${new Date().toISOString()}`);
   console.log(`🔄 Intervalo de sincronización blockchain: ${SYNC_INTERVAL_MINUTES} minutos (${SYNC_INTERVAL_MS}ms)`);
   console.log(`📊 Batches por contrato: ${BATCHES_PER_CONTRACT}`);
+
+  // Inicializar Event Buffer (solo si USE_SUPABASE=true)
+  if (process.env.USE_SUPABASE === 'true') {
+    const FLUSH_INTERVAL_MINUTES = process.env.FLUSH_INTERVAL_MINUTES
+      ? parseInt(process.env.FLUSH_INTERVAL_MINUTES, 10)
+      : 30; // Default: 30 minutos
+
+    console.log(`📦 Inicializando Event Buffer (flush cada ${FLUSH_INTERVAL_MINUTES} min)...`);
+
+    initEventBuffer(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      FLUSH_INTERVAL_MINUTES
+    );
+
+    enableBufferMode();
+    console.log('');
+  }
 
   // Mostrar estado de GitHub sync
   if (isGitHubSyncEnabled()) {
@@ -171,19 +191,27 @@ async function runContinuousListener() {
 /**
  * Manejo de señales para shutdown graceful
  */
-process.on('SIGTERM', () => {
+const shutdown = async (signal: string) => {
   console.log('');
-  console.log('⚠️  Recibida señal SIGTERM');
+  console.log(`⚠️  Recibida señal ${signal}`);
   console.log('🛑 Deteniendo listener...');
-  process.exit(0);
-});
 
-process.on('SIGINT', () => {
-  console.log('');
-  console.log('⚠️  Recibida señal SIGINT');
-  console.log('🛑 Deteniendo listener...');
+  // Flush final del buffer
+  if (process.env.USE_SUPABASE === 'true') {
+    console.log('📤 Haciendo flush final del buffer...');
+    try {
+      const buffer = getEventBuffer();
+      await buffer.stop();
+    } catch (error) {
+      console.error('Error en flush final:', error);
+    }
+  }
+
   process.exit(0);
-});
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 // Iniciar el listener
 runContinuousListener().catch((error) => {

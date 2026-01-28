@@ -5,10 +5,14 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getDBAPIClient } from '../db-api/client.js';
+import { getEventBuffer } from './event-buffer.js';
 
 // Determinar qué backend usar
 // SQLite es el default, Supabase solo si se especifica explícitamente
 const USE_SUPABASE = process.env.USE_SUPABASE === 'true';
+
+// Variable para trackear si estamos en modo buffer
+let USE_BUFFER = false;
 
 /**
  * Validar que las variables de entorno de Supabase estén presentes
@@ -125,6 +129,52 @@ let dbClient: ReturnType<typeof getDBAPIClient> | null = null;
  * Tipo unificado para el cliente de base de datos
  */
 type DatabaseClient = SupabaseClient | ReturnType<typeof getDBAPIClient>;
+
+/**
+ * Habilitar modo buffer - eventos se acumulan antes de escribir
+ */
+export function enableBufferMode(): void {
+  USE_BUFFER = true;
+  console.log('✅ Modo buffer activado - eventos se acumularán antes de escribir');
+}
+
+/**
+ * Insertar evento (usa buffer si está habilitado)
+ */
+export async function insertEvent(
+  table: string,
+  data: Record<string, any>
+): Promise<void> {
+  if (USE_BUFFER && USE_SUPABASE) {
+    // Modo buffer: acumular en memoria
+    const buffer = getEventBuffer();
+    buffer.addEvent(table, data);
+  } else {
+    // Modo legacy: escribir inmediatamente
+    const client = getSupabaseClient();
+    const { error } = await client.from(table).insert(data);
+    if (error && error.code !== '23505') {
+      console.error(`Error insertando en ${table}:`, error);
+    }
+  }
+}
+
+/**
+ * Upsert evento (bypass del buffer, siempre escribe directamente)
+ * Usado para sync_state y punk_listings que necesitan upsert
+ */
+export async function upsertEvent(
+  table: string,
+  data: Record<string, any>,
+  onConflict: string
+): Promise<void> {
+  const client = getSupabaseClient();
+  const { error } = await client.from(table).upsert(data, { onConflict });
+  if (error) {
+    console.error(`Error en upsert de ${table}:`, error);
+    throw error;
+  }
+}
 
 /**
  * Obtener el cliente de base de datos (singleton)

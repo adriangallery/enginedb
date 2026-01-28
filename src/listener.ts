@@ -16,9 +16,10 @@ import {
   EVENT_NAMES,
 } from './contracts/floorEngine.js';
 import {
-  getSupabaseClient,
   getLastSyncedBlock,
   updateLastSyncedBlock,
+  insertEvent,
+  upsertEvent,
 } from './supabase/client.js';
 import type {
   FloorEngineEvent,
@@ -96,10 +97,8 @@ export function createViemClient() {
  * Procesar evento Listed
  */
 async function processListedEvent(event: ListedEvent, blockTimestamp?: Date): Promise<void> {
-  const supabase = getSupabaseClient();
-
   // 1. Insertar en listing_events
-  const { error: listingError } = await supabase.from('listing_events').insert({
+  await insertEvent('listing_events', {
     event_type: 'Listed',
     token_id: Number(event.tokenId),
     seller: event.seller.toLowerCase(),
@@ -111,42 +110,29 @@ async function processListedEvent(event: ListedEvent, blockTimestamp?: Date): Pr
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
-  if (listingError && !listingError.message.includes('duplicate key')) {
-    console.error('Error al insertar Listed event:', listingError);
-    throw listingError;
-  }
-
   // 2. Upsert en punk_listings (actualizar estado actual)
-  const { error: upsertError } = await supabase
-    .from('punk_listings')
-    .upsert(
-      {
-        token_id: Number(event.tokenId),
-        seller: event.seller.toLowerCase(),
-        price_wei: bigintToString(event.price),
-        is_contract_owned: event.isContractOwned,
-        is_listed: true,
-        last_event: 'Listed',
-        last_tx_hash: event.txHash,
-        last_block_number: Number(event.blockNumber),
-      },
-      { onConflict: 'token_id' }
-    );
-
-  if (upsertError) {
-    console.error('Error al hacer upsert en punk_listings:', upsertError);
-    throw upsertError;
-  }
+  await upsertEvent(
+    'punk_listings',
+    {
+      token_id: Number(event.tokenId),
+      seller: event.seller.toLowerCase(),
+      price_wei: bigintToString(event.price),
+      is_contract_owned: event.isContractOwned,
+      is_listed: true,
+      last_event: 'Listed',
+      last_tx_hash: event.txHash,
+      last_block_number: Number(event.blockNumber),
+    },
+    'token_id'
+  );
 }
 
 /**
  * Procesar evento Cancelled
  */
 async function processCancelledEvent(event: CancelledEvent, blockTimestamp?: Date): Promise<void> {
-  const supabase = getSupabaseClient();
-
   // 1. Insertar en listing_events
-  const { error: listingError } = await supabase.from('listing_events').insert({
+  await insertEvent('listing_events', {
     event_type: 'Cancelled',
     token_id: Number(event.tokenId),
     seller: event.seller.toLowerCase(),
@@ -158,42 +144,29 @@ async function processCancelledEvent(event: CancelledEvent, blockTimestamp?: Dat
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
-  if (listingError && !listingError.message.includes('duplicate key')) {
-    console.error('Error al insertar Cancelled event:', listingError);
-    throw listingError;
-  }
-
   // 2. Upsert en punk_listings (marcar como no listado)
-  const { error: upsertError } = await supabase
-    .from('punk_listings')
-    .upsert(
-      {
-        token_id: Number(event.tokenId),
-        seller: event.seller.toLowerCase(),
-        price_wei: '0',
-        is_contract_owned: false,
-        is_listed: false,
-        last_event: 'Cancelled',
-        last_tx_hash: event.txHash,
-        last_block_number: Number(event.blockNumber),
-      },
-      { onConflict: 'token_id' }
-    );
-
-  if (upsertError) {
-    console.error('Error al hacer upsert en punk_listings:', upsertError);
-    throw upsertError;
-  }
+  await upsertEvent(
+    'punk_listings',
+    {
+      token_id: Number(event.tokenId),
+      seller: event.seller.toLowerCase(),
+      price_wei: '0',
+      is_contract_owned: false,
+      is_listed: false,
+      last_event: 'Cancelled',
+      last_tx_hash: event.txHash,
+      last_block_number: Number(event.blockNumber),
+    },
+    'token_id'
+  );
 }
 
 /**
  * Procesar evento Bought
  */
 async function processBoughtEvent(event: BoughtEvent, blockTimestamp?: Date): Promise<void> {
-  const supabase = getSupabaseClient();
-
   // 1. Insertar en trade_events
-  const { error: tradeError } = await supabase.from('trade_events').insert({
+  await insertEvent('trade_events', {
     token_id: Number(event.tokenId),
     buyer: event.buyer.toLowerCase(),
     seller: event.seller.toLowerCase(),
@@ -205,42 +178,29 @@ async function processBoughtEvent(event: BoughtEvent, blockTimestamp?: Date): Pr
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
-  if (tradeError && !tradeError.message.includes('duplicate key')) {
-    console.error('Error al insertar Bought event:', tradeError);
-    throw tradeError;
-  }
-
   // 2. Upsert en punk_listings (marcar como no listado)
-  const { error: upsertError } = await supabase
-    .from('punk_listings')
-    .upsert(
-      {
-        token_id: Number(event.tokenId),
-        seller: event.buyer.toLowerCase(), // El comprador es el nuevo "dueño"
-        price_wei: '0',
-        is_contract_owned: false,
-        is_listed: false,
-        last_event: 'Bought',
-        last_tx_hash: event.txHash,
-        last_block_number: Number(event.blockNumber),
-      },
-      { onConflict: 'token_id' }
-    );
-
-  if (upsertError) {
-    console.error('Error al hacer upsert en punk_listings:', upsertError);
-    throw upsertError;
-  }
+  await upsertEvent(
+    'punk_listings',
+    {
+      token_id: Number(event.tokenId),
+      seller: event.buyer.toLowerCase(), // El comprador es el nuevo "dueño"
+      price_wei: '0',
+      is_contract_owned: false,
+      is_listed: false,
+      last_event: 'Bought',
+      last_tx_hash: event.txHash,
+      last_block_number: Number(event.blockNumber),
+    },
+    'token_id'
+  );
 }
 
 /**
  * Procesar evento FloorSweep
  */
 async function processFloorSweepEvent(event: FloorSweepEvent, blockTimestamp?: Date): Promise<void> {
-  const supabase = getSupabaseClient();
-
   // 1. Insertar en sweep_events
-  const { error: sweepError } = await supabase.from('sweep_events').insert({
+  await insertEvent('sweep_events', {
     token_id: Number(event.tokenId),
     buy_price_wei: bigintToString(event.buyPrice),
     relist_price_wei: bigintToString(event.relistPrice),
@@ -252,32 +212,21 @@ async function processFloorSweepEvent(event: FloorSweepEvent, blockTimestamp?: D
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
 
-  if (sweepError && !sweepError.message.includes('duplicate key')) {
-    console.error('Error al insertar FloorSweep event:', sweepError);
-    throw sweepError;
-  }
-
   // 2. Upsert en punk_listings (el token se relista automáticamente)
-  const { error: upsertError } = await supabase
-    .from('punk_listings')
-    .upsert(
-      {
-        token_id: Number(event.tokenId),
-        seller: FLOOR_ENGINE_ADDRESS.toLowerCase(), // El contrato es el seller
-        price_wei: bigintToString(event.relistPrice),
-        is_contract_owned: true,
-        is_listed: true,
-        last_event: 'FloorSweep',
-        last_tx_hash: event.txHash,
-        last_block_number: Number(event.blockNumber),
-      },
-      { onConflict: 'token_id' }
-    );
-
-  if (upsertError) {
-    console.error('Error al hacer upsert en punk_listings:', upsertError);
-    throw upsertError;
-  }
+  await upsertEvent(
+    'punk_listings',
+    {
+      token_id: Number(event.tokenId),
+      seller: FLOOR_ENGINE_ADDRESS.toLowerCase(), // El contrato es el seller
+      price_wei: bigintToString(event.relistPrice),
+      is_contract_owned: true,
+      is_listed: true,
+      last_event: 'FloorSweep',
+      last_tx_hash: event.txHash,
+      last_block_number: Number(event.blockNumber),
+    },
+    'token_id'
+  );
 }
 
 /**
@@ -293,8 +242,6 @@ async function processConfigEvent(
     | OwnershipTransferredEvent,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
   let oldValue: string | null = null;
   let newValue: string | null = null;
 
@@ -324,7 +271,7 @@ async function processConfigEvent(
       break;
   }
 
-  const { error } = await supabase.from('engine_config_events').insert({
+  await insertEvent('engine_config_events', {
     event_type: event.eventName,
     old_value: oldValue,
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
@@ -333,11 +280,6 @@ async function processConfigEvent(
     log_index: event.logIndex,
     block_number: Number(event.blockNumber),
   });
-
-  if (error && !error.message.includes('duplicate key')) {
-    console.error('Error al insertar config event:', error);
-    throw error;
-  }
 }
 
 /**

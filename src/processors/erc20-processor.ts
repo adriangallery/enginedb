@@ -3,7 +3,7 @@
  * Maneja Transfer, Approval y eventos custom de contratos ERC20
  */
 
-import { getSupabaseClient } from '../supabase/client.js';
+import { insertEvent } from '../supabase/client.js';
 import type {
   AdrianTokenEvent,
   TransferEvent,
@@ -29,9 +29,7 @@ async function processTransferEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
-  const { error } = await supabase.from('erc20_transfers').insert({
+  await insertEvent('erc20_transfers', {
     contract_address: contractAddress.toLowerCase(),
     from_address: event.from.toLowerCase(),
     to_address: event.to.toLowerCase(),
@@ -41,19 +39,6 @@ async function processTransferEvent(
     block_number: Number(event.blockNumber),
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
-
-  if (error) {
-    // Ignorar errores de duplicados (idempotencia)
-    if (error.code === '23505') {
-      return;
-    }
-    console.error(
-      `[ADRIAN-ERC20] Error al insertar Transfer:`,
-      error,
-      event
-    );
-    throw error;
-  }
 }
 
 /**
@@ -64,9 +49,7 @@ async function processApprovalEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
-  const { error } = await supabase.from('erc20_approvals').insert({
+  await insertEvent('erc20_approvals', {
     contract_address: contractAddress.toLowerCase(),
     owner: event.owner.toLowerCase(),
     spender: event.spender.toLowerCase(),
@@ -76,19 +59,6 @@ async function processApprovalEvent(
     block_number: Number(event.blockNumber),
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
-
-  if (error) {
-    // Ignorar errores de duplicados (idempotencia)
-    if (error.code === '23505') {
-      return;
-    }
-    console.error(
-      `[ADRIAN-ERC20] Error al insertar Approval:`,
-      error,
-      event
-    );
-    throw error;
-  }
 }
 
 /**
@@ -109,8 +79,6 @@ async function processCustomEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
   // Convertir evento a JSONB según su tipo
   let eventData: Record<string, any> = {};
 
@@ -164,7 +132,7 @@ async function processCustomEvent(
       break;
   }
 
-  const { error } = await supabase.from('erc20_custom_events').insert({
+  await insertEvent('erc20_custom_events', {
     contract_address: contractAddress.toLowerCase(),
     event_name: event.eventName,
     event_data: eventData,
@@ -173,19 +141,6 @@ async function processCustomEvent(
     block_number: Number(event.blockNumber),
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
-
-  if (error) {
-    // Ignorar errores de duplicados (idempotencia)
-    if (error.code === '23505') {
-      return;
-    }
-    console.error(
-      `[ADRIAN-ERC20] Error al insertar evento custom ${event.eventName}:`,
-      error,
-      event
-    );
-    throw error;
-  }
 }
 
 /**

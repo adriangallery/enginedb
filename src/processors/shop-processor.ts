@@ -3,7 +3,7 @@
  * Maneja eventos de compras y configuración de shop
  */
 
-import { getSupabaseClient } from '../supabase/client.js';
+import { insertEvent } from '../supabase/client.js';
 import type { AdrianShopEvent } from '../contracts/types/adrian-shop-events.js';
 import { bigintToString } from '../contracts/types/adrian-shop-events.js';
 
@@ -15,8 +15,6 @@ export async function processShopEvent(
   contractAddress: string,
   blockTimestamp?: Date
 ): Promise<void> {
-  const supabase = getSupabaseClient();
-
   // Convertir evento a JSONB según su tipo
   let eventData: Record<string, any> = {};
 
@@ -112,7 +110,7 @@ export async function processShopEvent(
       break;
   }
 
-  const { error } = await supabase.from('shop_events').insert({
+  await insertEvent('shop_events', {
     contract_address: contractAddress.toLowerCase(),
     event_name: event.eventName,
     event_data: eventData,
@@ -121,17 +119,5 @@ export async function processShopEvent(
     block_number: Number(event.blockNumber),
     created_at: blockTimestamp?.toISOString() || new Date().toISOString(),
   });
-
-  if (error) {
-    if (error.code === '23505') {
-      return;
-    }
-    console.error(
-      `[Shop] Error al insertar evento ${event.eventName}:`,
-      error,
-      event
-    );
-    throw error;
-  }
 }
 
