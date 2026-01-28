@@ -8,7 +8,7 @@ import cors from 'cors';
 import 'dotenv/config';
 
 import { initDatabase } from './db/init.js';
-import { closeDatabase, getDatabaseSize, isConnected } from './db/sqlite.js';
+import { closeDatabase, getDatabaseSize, isConnected, getDatabase } from './db/sqlite.js';
 import { authMiddleware } from './middleware/auth.js';
 import { errorHandler } from './utils/errors.js';
 import tablesRouter from './routes/tables.js';
@@ -57,6 +57,61 @@ app.get('/health', (_req, res) => {
 
   console.log('🏥 Health check response:', JSON.stringify(response));
   res.json(response);
+});
+
+// Debug endpoint - Muestra estado detallado del sistema
+app.get('/debug/status', (_req, res) => {
+  console.log('🔍 Debug status solicitado');
+
+  try {
+    const db = getDatabase();
+    const connected = isConnected();
+    const dbSize = getDatabaseSize();
+
+    // Obtener última sincronización de cada contrato
+    const syncState = db.prepare(`
+      SELECT * FROM sync_state ORDER BY updated_at DESC LIMIT 5
+    `).all();
+
+    // Contar eventos totales
+    const eventCounts: Record<string, number> = {};
+    const tables = ['trade_events', 'listing_events', 'punk_listings', 'erc721_transfers', 'erc20_transfers'];
+
+    for (const table of tables) {
+      try {
+        const count = db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get() as { count: number };
+        eventCounts[table] = count.count;
+      } catch {
+        eventCounts[table] = 0;
+      }
+    }
+
+    const response = {
+      status: 'debug',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      nodeVersion: process.version,
+      database: {
+        connected,
+        sizeBytes: dbSize,
+        sizeMB: (dbSize / 1024 / 1024).toFixed(2),
+        path: process.env.DB_PATH || './data/enginedb.sqlite',
+      },
+      syncState: syncState,
+      eventCounts: eventCounts,
+      environment: {
+        PORT: process.env.PORT,
+        CORS_ORIGIN: process.env.CORS_ORIGIN,
+        NODE_ENV: process.env.NODE_ENV,
+      },
+    };
+
+    console.log('🔍 Debug status response:', JSON.stringify(response, null, 2));
+    res.json(response);
+  } catch (error: any) {
+    console.error('❌ Error en debug status:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Rutas públicas de información
