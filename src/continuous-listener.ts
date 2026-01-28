@@ -39,7 +39,8 @@ const GITHUB_SYNC_INTERVAL_MINUTES = (() => {
 const GITHUB_SYNC_INTERVAL_MS = GITHUB_SYNC_INTERVAL_MINUTES * 60 * 1000;
 
 // Timestamp de la última sincronización a GitHub
-let lastGitHubSync = 0;
+// Inicializar con Date.now() para evitar sync inmediato en primer ciclo
+let lastGitHubSync = Date.now();
 
 /**
  * Función para esperar un tiempo determinado
@@ -55,8 +56,9 @@ async function runContinuousListener() {
   console.log('🚀 Multi-Contract Continuous Listener Bot');
   console.log('==========================================');
   console.log(`⏰ Inicio: ${new Date().toISOString()}`);
-  console.log(`🔄 Intervalo de sincronización: ${SYNC_INTERVAL_MINUTES} minutos`);
-  
+  console.log(`🔄 Intervalo de sincronización blockchain: ${SYNC_INTERVAL_MINUTES} minutos (${SYNC_INTERVAL_MS}ms)`);
+  console.log(`📊 Batches por contrato: ${BATCHES_PER_CONTRACT}`);
+
   // Mostrar estado de GitHub sync
   if (isGitHubSyncEnabled()) {
     const requested = process.env.GITHUB_SYNC_INTERVAL_MINUTES;
@@ -64,6 +66,7 @@ async function runContinuousListener() {
     console.log(
       `📤 GitHub Sync: Activado (cada ${GITHUB_SYNC_INTERVAL_MINUTES} min${clamped ? ', mínimo 10 para no saturar GitHub' : ''})`
     );
+    console.log(`   Próximo sync a GitHub: ${new Date(lastGitHubSync + GITHUB_SYNC_INTERVAL_MS).toISOString()}`);
   } else {
     console.log('📤 GitHub Sync: Desactivado (GITHUB_TOKEN no configurado)');
   }
