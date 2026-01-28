@@ -33,12 +33,19 @@ app.use(cors(corsOptions));
 // Middleware de parsing JSON
 app.use(express.json({ limit: '10mb' }));
 
+// Logging middleware simple para debugging en Railway
+app.use((req, _res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
+
 // Health check (sin auth)
 app.get('/health', (_req, res) => {
+  console.log('🏥 Health check recibido');
   const connected = isConnected();
   const dbSize = getDatabaseSize();
-  
-  res.json({
+
+  const response = {
     status: connected ? 'healthy' : 'unhealthy',
     database: {
       connected,
@@ -46,7 +53,10 @@ app.get('/health', (_req, res) => {
       sizeMB: (dbSize / 1024 / 1024).toFixed(2),
     },
     timestamp: new Date().toISOString(),
-  });
+  };
+
+  console.log('🏥 Health check response:', JSON.stringify(response));
+  res.json(response);
 });
 
 // Rutas públicas de información
