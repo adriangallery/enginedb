@@ -219,7 +219,7 @@ export function getSupabaseClient(): DatabaseClient {
 }
 
 /**
- * Obtener el último bloque sincronizado desde Supabase
+ * Obtener el último bloque sincronizado desde base de datos
  * Función legacy para FloorEngine (mantiene compatibilidad)
  */
 export async function getLastSyncedBlock(): Promise<number> {
@@ -229,7 +229,7 @@ export async function getLastSyncedBlock(): Promise<number> {
 }
 
 /**
- * Actualizar el último bloque sincronizado en Supabase
+ * Actualizar el último bloque sincronizado en base de datos
  * Función legacy para FloorEngine (mantiene compatibilidad)
  */
 export async function updateLastSyncedBlock(blockNumber: number): Promise<void> {
@@ -246,27 +246,37 @@ export async function updateLastSyncedBlock(blockNumber: number): Promise<void> 
 export async function getLastSyncedBlockByContract(
   contractAddress: string
 ): Promise<number> {
-  const client = getSupabaseClient();
+  if (USE_SUPABASE) {
+    // Modo Supabase
+    const client = getSupabaseClient();
 
-  const { data, error } = await client
-    .from('sync_state')
-    .select('last_synced_block')
-    .eq('contract_address', contractAddress.toLowerCase())
-    .single();
+    const { data, error } = await client
+      .from('sync_state')
+      .select('last_synced_block')
+      .eq('contract_address', contractAddress.toLowerCase())
+      .single();
 
-  if (error) {
-    // Si no existe registro, retornar 0
-    if (error.code === 'PGRST116' || (error as any).code === '404') {
-      return 0;
+    if (error) {
+      // Si no existe registro, retornar 0
+      if (error.code === 'PGRST116' || (error as any).code === '404') {
+        return 0;
+      }
+      console.error(
+        `Error al obtener último bloque sincronizado para ${contractAddress}:`,
+        error
+      );
+      throw error;
     }
-    console.error(
-      `Error al obtener último bloque sincronizado para ${contractAddress}:`,
-      error
-    );
-    throw error;
-  }
 
-  return (data as any)?.last_synced_block ?? 0;
+    return (data as any)?.last_synced_block ?? 0;
+  } else {
+    // Modo SQLite
+    const result = SQLiteClient.get<{ last_synced_block: number }>(
+      'SELECT last_synced_block FROM sync_state WHERE contract_address = ?',
+      [contractAddress.toLowerCase()]
+    );
+    return result?.last_synced_block ?? 0;
+  }
 }
 
 /**
@@ -277,55 +287,69 @@ export async function updateLastSyncedBlockByContract(
   contractAddress: string,
   blockNumber: number
 ): Promise<void> {
-  const client = getSupabaseClient();
+  if (USE_SUPABASE) {
+    // Modo Supabase
+    const client = getSupabaseClient();
 
-  // Intentar actualizar registro existente
-  const { error: selectError } = await client
-    .from('sync_state')
-    .select('id')
-    .eq('contract_address', contractAddress.toLowerCase())
-    .single();
-
-  const notFound = selectError && (selectError.code === 'PGRST116' || (selectError as any).code === '404');
-
-  if (notFound) {
-    // No existe registro, crear uno nuevo
-    const { error: insertError } = await client.from('sync_state').insert({
-      contract_address: contractAddress.toLowerCase(),
-      last_synced_block: blockNumber,
-      updated_at: new Date().toISOString(),
-    });
-
-    if (insertError) {
-      console.error(
-        `Error al crear registro de sync_state para ${contractAddress}:`,
-        insertError
-      );
-      throw insertError;
-    }
-  } else if (selectError) {
-    console.error(
-      `Error al buscar registro de sync_state para ${contractAddress}:`,
-      selectError
-    );
-    throw selectError;
-  } else {
-    // Actualizar registro existente
-    const { error: updateError } = await client
+    // Intentar actualizar registro existente
+    const { error: selectError } = await client
       .from('sync_state')
-      .update({ 
+      .select('id')
+      .eq('contract_address', contractAddress.toLowerCase())
+      .single();
+
+    const notFound = selectError && (selectError.code === 'PGRST116' || (selectError as any).code === '404');
+
+    if (notFound) {
+      // No existe registro, crear uno nuevo
+      const { error: insertError } = await client.from('sync_state').insert({
+        contract_address: contractAddress.toLowerCase(),
         last_synced_block: blockNumber,
         updated_at: new Date().toISOString(),
-      })
-      .eq('contract_address', contractAddress.toLowerCase());
+      });
 
-    if (updateError) {
+      if (insertError) {
+        console.error(
+          `Error al crear registro de sync_state para ${contractAddress}:`,
+          insertError
+        );
+        throw insertError;
+      }
+    } else if (selectError) {
       console.error(
-        `Error al actualizar último bloque sincronizado para ${contractAddress}:`,
-        updateError
+        `Error al buscar registro de sync_state para ${contractAddress}:`,
+        selectError
       );
-      throw updateError;
+      throw selectError;
+    } else {
+      // Actualizar registro existente
+      const { error: updateError } = await client
+        .from('sync_state')
+        .update({
+          last_synced_block: blockNumber,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('contract_address', contractAddress.toLowerCase());
+
+      if (updateError) {
+        console.error(
+          `Error al actualizar último bloque sincronizado para ${contractAddress}:`,
+          updateError
+        );
+        throw updateError;
+      }
     }
+  } else {
+    // Modo SQLite
+    SQLiteClient.upsertEvent(
+      'sync_state',
+      {
+        contract_address: contractAddress.toLowerCase(),
+        last_synced_block: blockNumber,
+        updated_at: new Date().toISOString(),
+      },
+      'contract_address'
+    );
   }
 }
 
@@ -336,27 +360,37 @@ export async function updateLastSyncedBlockByContract(
 export async function getLastHistoricalBlockByContract(
   contractAddress: string
 ): Promise<number | null> {
-  const client = getSupabaseClient();
+  if (USE_SUPABASE) {
+    // Modo Supabase
+    const client = getSupabaseClient();
 
-  const { data, error } = await client
-    .from('sync_state')
-    .select('last_historical_block')
-    .eq('contract_address', contractAddress.toLowerCase())
-    .single();
+    const { data, error } = await client
+      .from('sync_state')
+      .select('last_historical_block')
+      .eq('contract_address', contractAddress.toLowerCase())
+      .single();
 
-  if (error) {
-    // Si no existe registro, retornar null
-    if (error.code === 'PGRST116' || (error as any).code === '404') {
-      return null;
+    if (error) {
+      // Si no existe registro, retornar null
+      if (error.code === 'PGRST116' || (error as any).code === '404') {
+        return null;
+      }
+      console.error(
+        `Error al obtener último bloque histórico para ${contractAddress}:`,
+        error
+      );
+      throw error;
     }
-    console.error(
-      `Error al obtener último bloque histórico para ${contractAddress}:`,
-      error
-    );
-    throw error;
-  }
 
-  return (data as any)?.last_historical_block ?? null;
+    return (data as any)?.last_historical_block ?? null;
+  } else {
+    // Modo SQLite
+    const result = SQLiteClient.get<{ last_historical_block: number | null }>(
+      'SELECT last_historical_block FROM sync_state WHERE contract_address = ?',
+      [contractAddress.toLowerCase()]
+    );
+    return result?.last_historical_block ?? null;
+  }
 }
 
 /**
@@ -367,55 +401,81 @@ export async function updateLastHistoricalBlockByContract(
   contractAddress: string,
   blockNumber: number
 ): Promise<void> {
-  const client = getSupabaseClient();
+  if (USE_SUPABASE) {
+    // Modo Supabase
+    const client = getSupabaseClient();
 
-  // Intentar actualizar registro existente
-  const { error: selectError } = await client
-    .from('sync_state')
-    .select('id')
-    .eq('contract_address', contractAddress.toLowerCase())
-    .single();
-
-  const notFound = selectError && (selectError.code === 'PGRST116' || (selectError as any).code === '404');
-
-  if (notFound) {
-    // No existe registro, crear uno nuevo
-    const { error: insertError } = await client.from('sync_state').insert({
-      contract_address: contractAddress.toLowerCase(),
-      last_synced_block: 0,
-      last_historical_block: blockNumber,
-      updated_at: new Date().toISOString(),
-    });
-
-    if (insertError) {
-      console.error(
-        `Error al crear registro de sync_state para ${contractAddress}:`,
-        insertError
-      );
-      throw insertError;
-    }
-  } else if (selectError) {
-    console.error(
-      `Error al buscar registro de sync_state para ${contractAddress}:`,
-      selectError
-    );
-    throw selectError;
-  } else {
-    // Actualizar registro existente
-    const { error: updateError } = await client
+    // Intentar actualizar registro existente
+    const { error: selectError } = await client
       .from('sync_state')
-      .update({ 
+      .select('id')
+      .eq('contract_address', contractAddress.toLowerCase())
+      .single();
+
+    const notFound = selectError && (selectError.code === 'PGRST116' || (selectError as any).code === '404');
+
+    if (notFound) {
+      // No existe registro, crear uno nuevo
+      const { error: insertError } = await client.from('sync_state').insert({
+        contract_address: contractAddress.toLowerCase(),
+        last_synced_block: 0,
         last_historical_block: blockNumber,
         updated_at: new Date().toISOString(),
-      })
-      .eq('contract_address', contractAddress.toLowerCase());
+      });
 
-    if (updateError) {
+      if (insertError) {
+        console.error(
+          `Error al crear registro de sync_state para ${contractAddress}:`,
+          insertError
+        );
+        throw insertError;
+      }
+    } else if (selectError) {
       console.error(
-        `Error al actualizar último bloque histórico para ${contractAddress}:`,
-        updateError
+        `Error al buscar registro de sync_state para ${contractAddress}:`,
+        selectError
       );
-      throw updateError;
+      throw selectError;
+    } else {
+      // Actualizar registro existente
+      const { error: updateError } = await client
+        .from('sync_state')
+        .update({
+          last_historical_block: blockNumber,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('contract_address', contractAddress.toLowerCase());
+
+      if (updateError) {
+        console.error(
+          `Error al actualizar último bloque histórico para ${contractAddress}:`,
+          updateError
+        );
+        throw updateError;
+      }
+    }
+  } else {
+    // Modo SQLite
+    // Primero verificar si existe
+    const existing = SQLiteClient.get<{ last_synced_block: number }>(
+      'SELECT last_synced_block FROM sync_state WHERE contract_address = ?',
+      [contractAddress.toLowerCase()]
+    );
+
+    if (!existing) {
+      // Crear nuevo
+      SQLiteClient.insertEvent('sync_state', {
+        contract_address: contractAddress.toLowerCase(),
+        last_synced_block: 0,
+        last_historical_block: blockNumber,
+        updated_at: new Date().toISOString(),
+      });
+    } else {
+      // Actualizar existente
+      SQLiteClient.run(
+        'UPDATE sync_state SET last_historical_block = ?, updated_at = ? WHERE contract_address = ?',
+        [blockNumber, new Date().toISOString(), contractAddress.toLowerCase()]
+      );
     }
   }
 }
