@@ -1,6 +1,0 @@
-# Required for native Node modules (e.g. better-sqlite3) built with node-gyp
-# See: https://github.com/railwayapp/nixpacks/issues/904
-# We must include nodejs_18 + npm explicitly because [phases.setup] replaces the default setup.
-[phases.setup]
-nixPkgs = ["nodejs_18", "npm-9_x", "python311"]
-aptPkgs = ["build-essential"]
