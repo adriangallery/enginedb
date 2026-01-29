@@ -30,12 +30,17 @@ RUN npm run build
 
 # Configurar git para commits automáticos a GitHub
 RUN git config --global user.email "bot@enginedb.app" && \
-    git config --global user.name "EngineDB Bot"
+    git config --global user.name "EngineDB Bot" && \
+    git config --global --add safe.directory /app
 
 # El bot no expone puertos (background job)
 
 # Test de carga de better-sqlite3
 RUN cd api && node -e "console.log('Testing better-sqlite3...'); const Database = require('better-sqlite3'); console.log('✅ better-sqlite3 loaded'); const db = new Database(':memory:'); db.close();" || exit 1
 
-# Iniciar bot listener (continuous-listener.js)
-CMD ["node", "dist/src/continuous-listener.js"]
+# Script de inicio que inicializa git si es necesario
+COPY scripts/start-bot.sh /app/start-bot.sh
+RUN chmod +x /app/start-bot.sh
+
+# Iniciar bot listener a través del script
+CMD ["/app/start-bot.sh"]

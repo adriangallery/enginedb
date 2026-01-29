@@ -6,6 +6,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getDBAPIClient } from '../db-api/client.js';
 import { getEventBuffer } from './event-buffer.js';
+import { getSQLiteEventBuffer } from '../sqlite/event-buffer.js';
+import * as SQLiteClient from '../sqlite/client.js';
 
 // Determinar qué backend usar
 // SQLite es el default, Supabase solo si se especifica explícitamente
@@ -145,16 +147,29 @@ export async function insertEvent(
   table: string,
   data: Record<string, any>
 ): Promise<void> {
-  if (USE_BUFFER && USE_SUPABASE) {
-    // Modo buffer: acumular en memoria
-    const buffer = getEventBuffer();
-    buffer.addEvent(table, data);
+  if (USE_SUPABASE) {
+    // Modo Supabase
+    if (USE_BUFFER) {
+      // Buffer para Supabase
+      const buffer = getEventBuffer();
+      buffer.addEvent(table, data);
+    } else {
+      // Directo a Supabase
+      const client = getSupabaseClient();
+      const { error } = await client.from(table).insert(data);
+      if (error && error.code !== '23505') {
+        console.error(`Error insertando en ${table}:`, error);
+      }
+    }
   } else {
-    // Modo legacy: escribir inmediatamente
-    const client = getSupabaseClient();
-    const { error } = await client.from(table).insert(data);
-    if (error && error.code !== '23505') {
-      console.error(`Error insertando en ${table}:`, error);
+    // Modo SQLite
+    if (USE_BUFFER) {
+      // Buffer para SQLite
+      const buffer = getSQLiteEventBuffer();
+      buffer.addEvent(table, data);
+    } else {
+      // Directo a SQLite
+      SQLiteClient.insertEvent(table, data);
     }
   }
 }
@@ -168,11 +183,17 @@ export async function upsertEvent(
   data: Record<string, any>,
   onConflict: string
 ): Promise<void> {
-  const client = getSupabaseClient();
-  const { error } = await client.from(table).upsert(data, { onConflict });
-  if (error) {
-    console.error(`Error en upsert de ${table}:`, error);
-    throw error;
+  if (USE_SUPABASE) {
+    // Upsert a Supabase
+    const client = getSupabaseClient();
+    const { error } = await client.from(table).upsert(data, { onConflict });
+    if (error) {
+      console.error(`Error en upsert de ${table}:`, error);
+      throw error;
+    }
+  } else {
+    // Upsert a SQLite
+    SQLiteClient.upsertEvent(table, data, onConflict);
   }
 }
 

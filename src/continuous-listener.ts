@@ -8,9 +8,12 @@
  */
 
 import { syncAllContracts } from './unified-listener.js';
-import { syncDatabaseToGitHub, isGitHubSyncEnabled } from './github-sync.js';
+import { syncDatabaseToGitHub as syncSupabaseToGitHub, isGitHubSyncEnabled as isSupabaseGitHubSyncEnabled } from './github-sync.js';
+import { syncDatabaseToGitHub as syncSQLiteToGitHub, isGitHubSyncEnabled as isSQLiteGitHubSyncEnabled } from './sqlite/github-sync.js';
 import { initEventBuffer, getEventBuffer } from './supabase/event-buffer.js';
+import { initSQLiteEventBuffer, getSQLiteEventBuffer } from './sqlite/event-buffer.js';
 import { enableBufferMode } from './supabase/client.js';
+import { getDatabase as initSQLiteDB } from './sqlite/client.js';
 import 'dotenv/config';
 
 // Configuración del intervalo de sincronización (en milisegundos)
@@ -61,13 +64,14 @@ async function runContinuousListener() {
   console.log(`🔄 Intervalo de sincronización blockchain: ${SYNC_INTERVAL_MINUTES} minutos (${SYNC_INTERVAL_MS}ms)`);
   console.log(`📊 Batches por contrato: ${BATCHES_PER_CONTRACT}`);
 
-  // Inicializar Event Buffer (solo si USE_SUPABASE=true)
-  if (process.env.USE_SUPABASE === 'true') {
-    const FLUSH_INTERVAL_MINUTES = process.env.FLUSH_INTERVAL_MINUTES
-      ? parseInt(process.env.FLUSH_INTERVAL_MINUTES, 10)
-      : 30; // Default: 30 minutos
+  const FLUSH_INTERVAL_MINUTES = process.env.FLUSH_INTERVAL_MINUTES
+    ? parseInt(process.env.FLUSH_INTERVAL_MINUTES, 10)
+    : 30; // Default: 30 minutos
 
-    console.log(`📦 Inicializando Event Buffer (flush cada ${FLUSH_INTERVAL_MINUTES} min)...`);
+  // Inicializar Event Buffer según el backend
+  if (process.env.USE_SUPABASE === 'true') {
+    // Modo Supabase
+    console.log(`📦 Inicializando Supabase Event Buffer (flush cada ${FLUSH_INTERVAL_MINUTES} min)...`);
 
     initEventBuffer(
       process.env.SUPABASE_URL!,
@@ -76,15 +80,34 @@ async function runContinuousListener() {
     );
 
     enableBufferMode();
+    console.log('✅ Modo: Supabase + Buffer');
+    console.log('');
+  } else {
+    // Modo SQLite directo
+    console.log(`📦 Inicializando SQLite Event Buffer (flush cada ${FLUSH_INTERVAL_MINUTES} min)...`);
+
+    // Inicializar base de datos SQLite
+    initSQLiteDB();
+
+    // Inicializar buffer
+    initSQLiteEventBuffer(FLUSH_INTERVAL_MINUTES);
+
+    enableBufferMode();
+    console.log('✅ Modo: SQLite local + GitHub sync');
     console.log('');
   }
 
   // Mostrar estado de GitHub sync
-  if (isGitHubSyncEnabled()) {
+  const isGitHubEnabled = process.env.USE_SUPABASE === 'true'
+    ? isSupabaseGitHubSyncEnabled()
+    : isSQLiteGitHubSyncEnabled();
+
+  if (isGitHubEnabled) {
     const requested = process.env.GITHUB_SYNC_INTERVAL_MINUTES;
     const clamped = requested && parseInt(requested, 10) < 10;
+    const syncType = process.env.USE_SUPABASE === 'true' ? 'Supabase → GitHub' : 'SQLite → GitHub';
     console.log(
-      `📤 GitHub Sync: Activado (cada ${GITHUB_SYNC_INTERVAL_MINUTES} min${clamped ? ', mínimo 10 para no saturar GitHub' : ''})`
+      `📤 GitHub Sync: Activado - ${syncType} (cada ${GITHUB_SYNC_INTERVAL_MINUTES} min${clamped ? ', mínimo 10 para no saturar GitHub' : ''})`
     );
     console.log(`   Próximo sync a GitHub: ${new Date(lastGitHubSync + GITHUB_SYNC_INTERVAL_MS).toISOString()}`);
   } else {
@@ -163,17 +186,19 @@ async function runContinuousListener() {
     }
 
     // Sincronizar base de datos a GitHub si ha pasado el intervalo
-    if (isGitHubSyncEnabled()) {
+    const isGitHubEnabled = process.env.USE_SUPABASE === 'true'
+      ? isSupabaseGitHubSyncEnabled()
+      : isSQLiteGitHubSyncEnabled();
+
+    if (isGitHubEnabled) {
       const timeSinceLastSync = Date.now() - lastGitHubSync;
       if (timeSinceLastSync >= GITHUB_SYNC_INTERVAL_MS) {
-        console.log('');
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('📤 Sincronizando base de datos a GitHub...');
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        
-        const syncResult = await syncDatabaseToGitHub();
+        const syncResult = process.env.USE_SUPABASE === 'true'
+          ? await syncSupabaseToGitHub()
+          : await syncSQLiteToGitHub();
+
         lastGitHubSync = Date.now();
-        
+
         if (syncResult.success) {
           console.log(`🕐 Próxima sincronización a GitHub: ${new Date(lastGitHubSync + GITHUB_SYNC_INTERVAL_MS).toISOString()}`);
         }
@@ -197,14 +222,17 @@ const shutdown = async (signal: string) => {
   console.log('🛑 Deteniendo listener...');
 
   // Flush final del buffer
-  if (process.env.USE_SUPABASE === 'true') {
-    console.log('📤 Haciendo flush final del buffer...');
-    try {
+  console.log('📤 Haciendo flush final del buffer...');
+  try {
+    if (process.env.USE_SUPABASE === 'true') {
       const buffer = getEventBuffer();
       await buffer.stop();
-    } catch (error) {
-      console.error('Error en flush final:', error);
+    } else {
+      const buffer = getSQLiteEventBuffer();
+      await buffer.stop();
     }
+  } catch (error) {
+    console.error('Error en flush final:', error);
   }
 
   process.exit(0);
