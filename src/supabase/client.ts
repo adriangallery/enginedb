@@ -340,16 +340,25 @@ export async function updateLastSyncedBlockByContract(
       }
     }
   } else {
-    // Modo SQLite
-    SQLiteClient.upsertEvent(
-      'sync_state',
-      {
+    // Modo SQLite - Manual INSERT/UPDATE porque partial index no funciona con ON CONFLICT
+    const existing = SQLiteClient.get<{ id: number }>('SELECT id FROM sync_state WHERE contract_address = ?', [
+      contractAddress.toLowerCase(),
+    ]);
+
+    if (!existing) {
+      // No existe, INSERT
+      SQLiteClient.insertEvent('sync_state', {
         contract_address: contractAddress.toLowerCase(),
         last_synced_block: blockNumber,
         updated_at: new Date().toISOString(),
-      },
-      'contract_address'
-    );
+      });
+    } else {
+      // Existe, UPDATE
+      SQLiteClient.run(
+        'UPDATE sync_state SET last_synced_block = ?, updated_at = ? WHERE contract_address = ?',
+        [blockNumber, new Date().toISOString(), contractAddress.toLowerCase()]
+      );
+    }
   }
 }
 
