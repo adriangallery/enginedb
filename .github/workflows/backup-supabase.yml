@@ -1,11 +1,11 @@
-name: Backup Supabase to GitHub
+name: Backup Supabase to GitHub (DISABLED - usando Railway sync)
 
 on:
-  schedule:
-    # Cada 30 minutos
-    - cron: '*/30 * * * *'
+  # Schedule DESACTIVADO - Railway bot hace sync directo ahora
+  # schedule:
+  #   - cron: '*/30 * * * *'
 
-  # Permitir ejecución manual
+  # Permitir ejecución manual solo para emergencias
   workflow_dispatch:
 
 jobs:
