@@ -139,15 +139,38 @@ async function runContinuousListener() {
     // Procesar en rondas hasta que todos los contratos estén sincronizados
     while (hasAnyWork && round < MAX_ROUNDS) {
       round++;
-      
+
       console.log(`🔄 Ronda #${round} - Procesando todos los contratos simultáneamente...`);
       console.log('');
-      
+
       try {
         const result = await syncAllContracts(BATCHES_PER_CONTRACT);
-        
+
         // Verificar si algún contrato tiene más trabajo
         hasAnyWork = result.hasMore;
+
+        // Sincronizar a GitHub periódicamente (cada 15 min) incluso durante catch-up
+        const isGitHubEnabled = process.env.USE_SUPABASE === 'true'
+          ? isSupabaseGitHubSyncEnabled()
+          : isSQLiteGitHubSyncEnabled();
+
+        if (isGitHubEnabled) {
+          const timeSinceLastSync = Date.now() - lastGitHubSync;
+          if (timeSinceLastSync >= GITHUB_SYNC_INTERVAL_MS) {
+            console.log('');
+            console.log('⏰ Tiempo de sync a GitHub durante catch-up...');
+            const syncResult = process.env.USE_SUPABASE === 'true'
+              ? await syncSupabaseToGitHub()
+              : await syncSQLiteToGitHub();
+
+            lastGitHubSync = Date.now();
+
+            if (syncResult.success) {
+              console.log(`🕐 Próxima sincronización a GitHub: ${new Date(lastGitHubSync + GITHUB_SYNC_INTERVAL_MS).toISOString()}`);
+            }
+            console.log('');
+          }
+        }
         
         console.log('');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
