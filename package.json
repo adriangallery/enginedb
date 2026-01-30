@@ -1,0 +1,49 @@
+{
+  "name": "floor-engine-listener",
+  "version": "1.0.0",
+  "description": "Bot listener para indexar eventos de contratos en Base + API SQLite",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "dev:continuous": "tsx src/continuous-listener.ts",
+    "dev:unified": "tsx src/start-unified.ts",
+    "build": "tsc && cd api && npm run build",
+    "build:bot": "tsc",
+    "build:api": "cd api && npm run build",
+    "start": "node dist/src/continuous-listener.js",
+    "start:unified": "node dist/src/start-unified.js",
+    "start:api-only": "cd api && npm start",
+    "start:once": "node dist/src/index.js",
+    "type-check": "tsc --noEmit",
+    "fix-timestamps": "tsx scripts/fix-event-timestamps.ts",
+    "backup": "tsx scripts/backup-supabase-to-github.ts",
+    "backup:prod": "node dist/scripts/backup-supabase-to-github.js"
+  },
+  "keywords": [
+    "ethereum",
+    "base",
+    "listener",
+    "indexer",
+    "sqlite"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.3",
+    "better-sqlite3": "^9.4.3",
+    "viem": "^2.7.1",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.11.5",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
+
