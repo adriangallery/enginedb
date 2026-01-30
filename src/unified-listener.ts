@@ -282,58 +282,85 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     ? BigInt(process.env.FALLBACK_START_BLOCK)
     : 38293582n; // Bloque de inicio por defecto (público)
 
+  // Backward sync - Controlado por variable PAUSE_BACKWARDS
+  // Definir antes de calcular backlog para usarlo en la lógica
+  const PAUSE_BACKWARDS = process.env.PAUSE_BACKWARDS === 'pause' ||
+                          process.env.PAUSE_BACKWARDS === 'true';
+
   // Paralelismo adaptativo según backlog
-  // Calcular backlog promedio de todos los contratos
+  // Calcular backlog promedio de todos los contratos (forward + backward)
   let totalBacklog = 0n;
   let contractCount = 0;
-  
+
   // Primero obtener el bloque actual para calcular backlog
   const currentBlock = await client.getBlockNumber();
-  
+
+  // Calcular backlog TOTAL: forward + backward
   for (const contract of CONTRACT_REGISTRY) {
     const lastSynced = BigInt(await getLastSyncedBlockByContract(contract.address));
+    const lastHistorical = await getLastHistoricalBlockByContract(contract.address);
+
+    // Gap forward (hacia el bloque actual)
     if (lastSynced < currentBlock) {
       totalBacklog += currentBlock - lastSynced;
       contractCount++;
     }
+
+    // Gap backward (hacia el startBlock histórico) - CRÍTICO: Incluir esto para backlog real
+    if (!PAUSE_BACKWARDS && lastHistorical !== null && BigInt(lastHistorical) > contract.startBlock) {
+      const backwardGap = BigInt(lastHistorical) - contract.startBlock;
+      totalBacklog += backwardGap;
+      // No incrementar contractCount de nuevo, ya fue contado arriba
+    }
   }
-  
+
   const avgBacklog = contractCount > 0 ? totalBacklog / BigInt(contractCount) : 0n;
+
+  console.log(`📊 Backlog total calculado: ${totalBacklog.toLocaleString()} bloques | Promedio: ${avgBacklog.toLocaleString()} bloques/contrato`);
   
   // Velocidad adaptativa según backlog:
-  // - >1000 bloques: Alta velocidad (20 paralelos) - Necesitamos ponernos al día rápido
-  // - 100-1000 bloques: Velocidad media (10 paralelos) - Backlog moderado
-  // - 10-100 bloques: Velocidad normal (3-5 paralelos) - Pequeño backlog, mantener ritmo
-  // - <10 bloques: Velocidad baja (2 paralelos) - Casi al día, no sobrecargar
+  // - >100k bloques: Turbo (20 paralelos, sin delays) - Backlog masivo, máxima velocidad
+  // - >10k bloques: Alta velocidad (20 paralelos) - Necesitamos ponernos al día rápido
+  // - >1000 bloques: Velocidad media (15 paralelos) - Backlog moderado
+  // - >100 bloques: Velocidad normal (10 paralelos) - Pequeño backlog, mantener ritmo
+  // - <100 bloques: Velocidad baja (5 paralelos) - Casi al día, no sobrecargar
   let adaptiveParallelism: number;
   let adaptiveDelay: number;
   let adaptiveBlocksPerBatch: bigint;
   let adaptiveRequestDelay: number; // Delay entre requests paralelos
-  
-  if (avgBacklog > 1000n) {
-    adaptiveParallelism = useFallback ? 10 : 20; // Alta velocidad
-    adaptiveDelay = useFallback ? 1000 : 500; // Delay corto entre batches
-    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH; // Mantener batch size base
-    adaptiveRequestDelay = 50; // Delay entre requests paralelos
-    console.log(`⚡ Modo: Alta velocidad (backlog: ~${avgBacklog} bloques)`);
+
+  if (avgBacklog > 100000n) {
+    // TURBO MODE: Backlog masivo (>100k), máxima velocidad sin delays
+    adaptiveParallelism = useFallback ? 15 : 20;
+    adaptiveDelay = 0; // Sin delay entre batches cuando backlog es enorme
+    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH;
+    adaptiveRequestDelay = 25; // Delay mínimo entre requests paralelos
+    console.log(`🚀 Modo: TURBO (backlog: ~${avgBacklog.toLocaleString()} bloques) - Máxima velocidad`);
+  } else if (avgBacklog > 10000n) {
+    // ALTA VELOCIDAD: Backlog grande (>10k)
+    adaptiveParallelism = useFallback ? 10 : 20;
+    adaptiveDelay = useFallback ? 500 : 200; // Delay mínimo entre batches
+    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH;
+    adaptiveRequestDelay = 25;
+    console.log(`⚡ Modo: Alta velocidad (backlog: ~${avgBacklog.toLocaleString()} bloques)`);
+  } else if (avgBacklog > 1000n) {
+    adaptiveParallelism = useFallback ? 8 : 15; // Velocidad media-alta
+    adaptiveDelay = useFallback ? 1000 : 500;
+    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH;
+    adaptiveRequestDelay = 50;
+    console.log(`⚡ Modo: Velocidad media (backlog: ~${avgBacklog.toLocaleString()} bloques)`);
   } else if (avgBacklog > 100n) {
-    adaptiveParallelism = useFallback ? 5 : 10; // Velocidad media
-    adaptiveDelay = useFallback ? 1500 : 1000; // Delay medio entre batches
-    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH; // Mantener batch size base
-    adaptiveRequestDelay = 50; // Delay entre requests paralelos
-    console.log(`⚡ Modo: Velocidad media (backlog: ~${avgBacklog} bloques)`);
-  } else if (avgBacklog > 10n) {
-    adaptiveParallelism = useFallback ? 3 : 5; // Velocidad normal - suficiente para mantenerse al día
-    adaptiveDelay = useFallback ? 1000 : 500; // Delay corto para reducir backlog
-    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH * 2n; // Aumentar batch size para reducir requests
-    adaptiveRequestDelay = 25; // Reducir delay entre requests
-    console.log(`⚡ Modo: Velocidad normal (backlog: ~${avgBacklog} bloques) - Manteniendo ritmo`);
+    adaptiveParallelism = useFallback ? 5 : 10; // Velocidad normal
+    adaptiveDelay = useFallback ? 1500 : 1000;
+    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH;
+    adaptiveRequestDelay = 50;
+    console.log(`⚡ Modo: Velocidad normal (backlog: ~${avgBacklog.toLocaleString()} bloques)`);
   } else {
-    adaptiveParallelism = useFallback ? 2 : 5; // Velocidad baja
-    adaptiveDelay = useFallback ? 2000 : 2000; // Delay largo para no sobrecargar
-    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH * 3n; // Aumentar batch size significativamente
-    adaptiveRequestDelay = 25; // Delay mínimo entre requests
-    console.log(`⚡ Modo: Velocidad baja (backlog: ~${avgBacklog} bloques) - Casi al día`);
+    adaptiveParallelism = useFallback ? 3 : 5; // Velocidad baja
+    adaptiveDelay = useFallback ? 2000 : 2000;
+    adaptiveBlocksPerBatch = BASE_BLOCKS_PER_BATCH * 2n; // Batch más grande cuando backlog es pequeño
+    adaptiveRequestDelay = 50;
+    console.log(`⚡ Modo: Velocidad baja (backlog: ~${avgBacklog.toLocaleString()} bloques) - Casi al día`);
   }
   
   // BLOCKS_PER_BATCH adaptativo según backlog
@@ -343,12 +370,6 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     ? parseInt(process.env.PARALLEL_REQUESTS)
     : adaptiveParallelism;
 
-  // Backward sync - Controlado por variable PAUSE_BACKWARDS
-  // Si es "pause" o "true", deshabilitar backward completamente
-  // Si es "resume" o "false" (o no está definido), habilitar backward
-  const PAUSE_BACKWARDS = process.env.PAUSE_BACKWARDS === 'pause' || 
-                          process.env.PAUSE_BACKWARDS === 'true';
-  
   if (PAUSE_BACKWARDS) {
     console.log('⏸️  Backward sync PAUSADO (PAUSE_BACKWARDS=pause)');
     console.log('💡 Para reactivar: PAUSE_BACKWARDS=resume o PAUSE_BACKWARDS=false');
@@ -1030,25 +1051,26 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
     }
     
     // Recalcular backlog periódicamente para ajustar velocidad
-    // Cachear currentBlock para evitar llamadas innecesarias
-    if (batchCounter % 10 === 0) {
+    // Reducir frecuencia de getBlockNumber (solo cada 50 batches = ~100k bloques procesados)
+    // En backlog masivo (>100k), el paralelismo ya está al máximo, no necesitamos recalcular tanto
+    if (batchCounter % 50 === 0) {
       let newTotalBacklog = 0n;
       let newContractCount = 0;
-      // Solo actualizar currentBlock cada 10 batches para optimizar
+      // Actualizar currentBlock cada 50 batches (aprox cada 5-10 minutos)
       const newCurrentBlock = await client.getBlockNumber();
-      
+
       for (const state of contractStates) {
         if (state.lastSyncedBlock < newCurrentBlock) {
           newTotalBacklog += newCurrentBlock - state.lastSyncedBlock;
           newContractCount++;
         }
       }
-      
+
       const newAvgBacklog = newContractCount > 0 ? newTotalBacklog / BigInt(newContractCount) : 0n;
-      
+
       // Ajustar velocidad si el backlog cambió significativamente
-      if (newAvgBacklog > avgBacklog + 500n || newAvgBacklog < avgBacklog - 500n) {
-        console.log(`📊 Backlog actualizado: ~${newAvgBacklog} bloques (antes: ~${avgBacklog})`);
+      if (newAvgBacklog > avgBacklog + 1000n || newAvgBacklog < avgBacklog - 1000n) {
+        console.log(`📊 Backlog actualizado: ~${newAvgBacklog.toLocaleString()} bloques (antes: ~${avgBacklog.toLocaleString()})`);
         // Nota: El paralelismo se ajustará en la próxima ejecución de syncAllContracts
       }
     }
