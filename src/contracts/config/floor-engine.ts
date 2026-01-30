@@ -13,9 +13,9 @@ export const FLOOR_ENGINE_CONFIG: ContractConfig = {
   address: '0x0351F7cBA83277E891D4a85Da498A7eACD764D58',
   name: 'FloorEngine',
   type: 'custom',
-  // Start block: Puedes ajustar esto al bloque de deployment real
-  // Por ahora usando 0n para procesar desde el principio
-  startBlock: 0n,
+  // Start block: Deployment real en Base Mainnet (primer evento en bloque ~38.3M)
+  // Usando 38293582 como start block seguro (antes del primer evento conocido)
+  startBlock: 38293582n,
   enabled: true,
 };
 
