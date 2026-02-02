@@ -5,6 +5,7 @@
     "dockerfilePath": "Dockerfile.bot",
     "watchPatterns": [
       "src/**",
+      "api/**",
       "scripts/**",
       "Dockerfile.bot",
       "package.json",
