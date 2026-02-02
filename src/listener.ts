@@ -42,9 +42,10 @@ import { bigintToString } from './types/events.js';
 // Número de bloques a procesar por lote
 // Alchemy Free: máximo 10 bloques
 // Alchemy Growth/Pro: hasta 2000 bloques
+const ALCHEMY_TIER = process.env.ALCHEMY_TIER || 'free';
 const BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
   ? BigInt(process.env.BLOCKS_PER_BATCH)
-  : 10n; // Default: 10 para Alchemy Free tier
+  : (ALCHEMY_TIER === 'paid' ? 2000n : 10n); // Default: 10 para Free, 2000 para Paid
 
 // Número de requests paralelos para mantenernos al día con Base
 // Base genera ~30 bloques/minuto, con 3 requests paralelos de 10 bloques = 30 bloques/minuto

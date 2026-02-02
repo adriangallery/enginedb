@@ -46,9 +46,11 @@ import { processSerumModuleEvent } from './processors/serum-module-processor.js'
 import { processPunkQuestEvent } from './processors/punk-quest-processor.js';
 
 // Configuración base - se ajustará dinámicamente según backlog
+// ALCHEMY_TIER: 'free' = 10 bloques (default), 'paid' = 2000 bloques
+const ALCHEMY_TIER = process.env.ALCHEMY_TIER || 'free';
 const BASE_BLOCKS_PER_BATCH = process.env.BLOCKS_PER_BATCH
   ? BigInt(process.env.BLOCKS_PER_BATCH)
-  : 2000n; // Bloques por batch base (Alchemy max: 2000)
+  : (ALCHEMY_TIER === 'paid' ? 2000n : 10n); // Free tier: 10 bloques, Paid tier: 2000 bloques
 
 // Número de requests paralelos - se define dentro de syncAllContracts basado en el modo
 // Valores optimizados: 20 en normal, 10 en fallback (para procesar ~75k bloques/día)
@@ -267,16 +269,22 @@ export async function syncAllContracts(maxBatches?: number): Promise<{
       const match = rpcUrl.match(/\/v2\/([^\/\?]+)/);
       if (match) {
         const apiKey = match[1];
-        const maskedKey = apiKey.length > 8 
+        const maskedKey = apiKey.length > 8
           ? `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}`
           : '***';
         console.log(`🔑 Alchemy API Key configurada: ${maskedKey}`);
         console.log(`📍 URL completa: ${rpcUrl.replace(/\/v2\/[^\/\?]+/, '/v2/***')}`);
+        console.log(`💎 Alchemy Tier: ${ALCHEMY_TIER.toUpperCase()} (${BASE_BLOCKS_PER_BATCH} bloques/batch)`);
       }
     } else {
       console.log(`📍 RPC URL configurada: ${rpcUrl}`);
     }
+  } else {
+    console.log(`⚠️  RPC_URL_BASE no configurado, usando RPC público`);
   }
+
+  console.log(`📦 Configuración: ${BASE_BLOCKS_PER_BATCH} bloques por batch${ALCHEMY_TIER === 'free' ? ' (Free Tier)' : ' (Paid Tier)'}`);
+
   // Bloque de inicio para fallback (hardcoded, valor público)
   const fallbackStartBlock = process.env.FALLBACK_START_BLOCK
     ? BigInt(process.env.FALLBACK_START_BLOCK)
