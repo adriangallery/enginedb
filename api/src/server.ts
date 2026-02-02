@@ -12,6 +12,7 @@ import { closeDatabase, getDatabaseSize, isConnected, getDatabase } from './db/s
 import { authMiddleware } from './middleware/auth.js';
 import { errorHandler } from './utils/errors.js';
 import tablesRouter from './routes/tables.js';
+import queryRouter from './routes/query.js';
 
 // Crear app Express
 const app = express();
@@ -123,10 +124,16 @@ app.get('/', (_req, res) => {
     endpoints: {
       health: '/health',
       tables: '/rest/v1/:table',
+      query: 'POST /query',
+      listTables: 'GET /query/tables',
+      tableSchema: 'GET /query/schema/:table',
     },
     documentation: 'https://github.com/adriangallery/enginedb/tree/main/api',
   });
 });
+
+// Rutas de query directas (públicas por ahora, puedes protegerlas agregando authMiddleware)
+app.use('/', queryRouter);
 
 // Middleware de autenticación para rutas protegidas
 app.use('/rest/v1', authMiddleware);
@@ -163,6 +170,9 @@ export async function startServer(): Promise<void> {
     console.log(`   POST http://localhost:${PORT}/rest/v1/:table`);
     console.log(`   PATCH http://localhost:${PORT}/rest/v1/:table`);
     console.log(`   DELETE http://localhost:${PORT}/rest/v1/:table`);
+    console.log(`   POST http://localhost:${PORT}/query`);
+    console.log(`   GET  http://localhost:${PORT}/query/tables`);
+    console.log(`   GET  http://localhost:${PORT}/query/schema/:table`);
     console.log('');
     console.log('═══════════════════════════════════════════════════════════');
   });
