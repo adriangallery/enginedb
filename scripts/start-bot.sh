@@ -57,8 +57,9 @@ echo ""
 # Crear directorio para la base de datos si no existe
 mkdir -p /app/api/data
 
-echo "🎯 Iniciando continuous listener..."
+echo "🎯 Iniciando modo unificado (API + Bot)..."
 echo ""
 
-# Iniciar el bot
-exec node dist/src/continuous-listener.js
+# Iniciar ambos servicios (API + Bot)
+# Por defecto: API activa, Bot activo si RUN_BOT=true
+exec node dist/src/start-unified.js
